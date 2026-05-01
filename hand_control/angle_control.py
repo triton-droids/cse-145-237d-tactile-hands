@@ -150,6 +150,43 @@ def update_joint(prev, target, max_step=3.0, alpha=0.3):
     # smoothing (low-pass filter)
     return alpha * target + (1 - alpha) * prev
 
+# =========================
+# LANDMARK DRAWING
+# =========================
+# MediaPipe hand connection pairs (21 landmarks)
+HAND_CONNECTIONS = [
+    # Wrist to base of each finger
+    (0, 1), (0, 5), (0, 17),
+    # Palm cross-connections
+    (5, 9), (9, 13), (13, 17),
+    # Thumb
+    (1, 2), (2, 3), (3, 4),
+    # Index
+    (5, 6), (6, 7), (7, 8),
+    # Middle
+    (9, 10), (10, 11), (11, 12),
+    # Ring
+    (13, 14), (14, 15), (15, 16),
+    # Pinky
+    (17, 18), (18, 19), (19, 20),
+]
+
+def draw_hand_landmarks(frame, landmarks):
+    h, w = frame.shape[:2]
+
+    # Convert normalised coords to pixel coords
+    pts = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
+
+    # Draw bones (green lines)
+    for a, b in HAND_CONNECTIONS:
+        cv2.line(frame, pts[a], pts[b], (0, 255, 80), 2, cv2.LINE_AA)
+
+    # Draw joints (red filled circles)
+    for x, y in pts:
+        cv2.circle(frame, (x, y), 3, (0, 0, 220), -1, cv2.LINE_AA)
+        # Thin white border so dots pop on any background
+        cv2.circle(frame, (x, y), 3, (255, 255, 255), 1, cv2.LINE_AA)
+
 
 # =========================
 # MAIN LOOP
@@ -192,6 +229,9 @@ with HandLandmarker.create_from_options(options) as landmarker:
             thumb_pip = -(thumb_pip_flex * 125 - 35)
             filtered["thumb"] = update_joint(filtered["thumb"], thumb_pip)
 
+            # Draw skeleton overlay on the frame
+            draw_hand_landmarks(frame, landmarks)
+        
         # =========================
         # CONTROL HAND
         # =========================
