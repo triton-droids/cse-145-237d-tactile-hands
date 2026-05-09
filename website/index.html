@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="title" content="Tactile Hands — Triton Droids (CSE 145/237D)">
+  <meta name="description" content="A low-cost robotic hand prototype with FSR-based fingertip sensing for force-aware grasping, built for CSE 145/237D by Triton Droids at UC San Diego.">
+  <meta name="keywords" content="robotic hand, tactile sensing, FSR, force-sensing resistor, ESP32, AmazingHand, grasping, CSE 145, CSE 237D, UCSD, Triton Droids">
+  <meta name="author" content="Bryce Hackel, Sidath, Thomas, Shree, Ali">
+  <meta name="robots" content="index, follow">
+  <meta name="language" content="English">
+
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Triton Droids — UC San Diego">
+  <meta property="og:title" content="Tactile Hands">
+  <meta property="og:description" content="Low-cost robotic hand with calibrated fingertip force sensing for force-aware grasping.">
+
+  <title>Tactile Hands — Triton Droids | CSE 145/237D</title>
+
+  <link rel="icon" type="image/x-icon" href="static/images/favicon.ico">
+  <link rel="apple-touch-icon" href="static/images/favicon.ico">
+
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="preload" href="static/css/bulma-carousel.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="static/css/bulma-slider.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="static/css/fontawesome.all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet" href="static/css/bulma-carousel.min.css">
+    <link rel="stylesheet" href="static/css/bulma-slider.min.css">
+    <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  </noscript>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script defer src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script defer src="static/js/bulma-carousel.min.js"></script>
+  <script defer src="static/js/bulma-slider.min.js"></script>
+  <script defer src="static/js/index.js"></script>
+</head>
+<body>
+
+  <button class="scroll-to-top" onclick="scrollToTop()" title="Scroll to top" aria-label="Scroll to top">
+    <i class="fas fa-chevron-up"></i>
+  </button>
+
+  <main id="main-content">
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-1 publication-title">Tactile Hands</h1>
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">Bryce Hackel<sup>*</sup>,</span>
+              <span class="author-block">Sidath,</span>
+              <span class="author-block">Thomas,</span>
+              <span class="author-block">Shree,</span>
+              <span class="author-block">Ali</span>
+            </div>
+
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">Triton Droids · UC San Diego · CSE 145/237D · 2026</span>
+              <span class="eql-cntrb"><small><br><sup>*</sup>Project Lead</small></span>
+            </div>
+
+            <div class="column has-text-centered">
+              <div class="publication-links">
+                <span class="link-block">
+                  <a href="https://github.com/triton-droids/cse-145-237d-tactile-hands" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fab fa-github"></i></span>
+                    <span>Code</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Teaser video -->
+  <section class="hero teaser">
+    <div class="container is-max-desktop">
+      <div class="hero-body">
+        <video poster="" id="tree" autoplay controls muted loop height="100%" preload="metadata">
+          <source src="static/videos/banner_video.mp4" type="video/mp4">
+        </video>
+        <h2 class="subtitle has-text-centered">
+          A low-cost robotic hand with FSR-based fingertip sensing — calibrated to within 1N and grasping without crushing.
+        </h2>
+      </div>
+    </div>
+  </section>
+  <!-- End teaser video -->
+
+  <!-- Overview / Abstract -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Overview</h2>
+          <div class="content has-text-justified">
+            <p>
+              The goal of this project is to develop a low-cost robotic hand prototype with force-sensing resistors (FSRs)
+              on the fingertips of each finger, capable of grasping and releasing simple objects while actively avoiding
+              crushing them. The sensors will be accurate to within 1N. If time allows, additional input methods such as
+              vision-based finger pose estimation, VR teleoperation, and sim-to-real transfer will be explored to extend
+              the system's capabilities. By the end of the quarter, we will demonstrate a working prototype that can perform
+              basic grasping tasks on a small set of test objects, with the force feedback loop actively modulating grip strength.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End overview -->
+
+  <!-- Image carousel -->
+  <section class="hero is-small">
+    <div class="hero-body">
+      <div class="container">
+        <div id="results-carousel" class="carousel results-carousel">
+          <div class="item">
+            <img src="static/images/carousel1.jpg" alt="Placeholder image 1" loading="lazy"/>
+            <h2 class="subtitle has-text-centered">Placeholder — replace with hand photo / PCB / calibration rig.</h2>
+          </div>
+          <div class="item">
+            <img src="static/images/carousel2.jpg" alt="Placeholder image 2" loading="lazy"/>
+            <h2 class="subtitle has-text-centered">Placeholder — replace with FSR mount or wiring shot.</h2>
+          </div>
+          <div class="item">
+            <img src="static/images/carousel3.jpg" alt="Placeholder image 3" loading="lazy"/>
+            <h2 class="subtitle has-text-centered">Placeholder — replace with calibration plot.</h2>
+          </div>
+          <div class="item">
+            <img src="static/images/carousel4.jpg" alt="Placeholder image 4" loading="lazy"/>
+            <h2 class="subtitle has-text-centered">Placeholder — replace with simulation screenshot.</h2>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End image carousel -->
+
+  <!-- Approach -->
+  <section class="section">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Approach</h2>
+      <p>The work is organized into four phases.</p>
+      <h4>Phase 1 — System Design and Component Selection (Weeks 2–3)</h4>
+      <p>
+        Finalize the hand platform (based on AmazingHand), select FSRs, choose the microcontroller (ESP32),
+        and define the electronics architecture. Deliverables: voltage divider circuit design, prototype board layout
+        for the back of the hand, calibration weight selection, and initial simulation environment setup.
+      </p>
+      <h4>Phase 2 — Hardware Build and Sensor Integration (Weeks 3–5)</h4>
+      <p>
+        Assemble the mechanical hand, fabricate and populate the prototype sensor board, and attach FSRs to the fingertips.
+        The ESP32 reads force values over a voltage divider network and transmits them over USB serial. Fake force values
+        are streamed first to validate the data pipeline end-to-end before real sensors are connected. Calibration runs
+        in parallel using 3D-printed weights to map raw readings to Newtons within 1N. The AmazingHand simulation is also brought up.
+      </p>
+      <h4>Phase 3 — Testing, Calibration Validation, and Basic Grasping (Weeks 5–6)</h4>
+      <p>
+        Validate the calibration against known loads and demonstrate a basic grasp-and-release cycle on at least one simple object.
+        The force feedback loop is tested to confirm the system actively avoids crushing the object. This phase culminates in the MVP demo.
+      </p>
+      <h4>Phase 4 — Reach Goals and Documentation (Weeks 7–10)</h4>
+      <p>
+        After the MVP, pursue stretch goals: VR teleoperation via Quest 2, vision-based finger pose estimation,
+        sim-to-real object rotation, and mounting the hand on a robotic arm. Final report and documentation complete this phase.
+      </p>
+    </div>
+  </section>
+
+  <!-- MVP -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Minimum Viable Product</h2>
+      <p>
+        A robotic hand prototype with FSRs on each fingertip, calibrated to within 1N accuracy, that demonstrates controlled
+        finger motion and the ability to pick up at least one simple object. Force information must be clearly used to avoid
+        crushing the object.
+      </p>
+      <h4>MVP Goals</h4>
+      <ol>
+        <li><strong>Operational hand prototype with tactile sensing</strong> — fingers open/close in a controlled way; FSRs are mounted on each fingertip and connected to the prototype board; the ESP32 reads them via voltage dividers and streams readings over USB; structure is mechanically stable.</li>
+        <li><strong>Calibrated force sensing accurate to within 1N</strong> — 3D-printed calibration weights map raw ADC to Newtons; the non-linear curve is fit with a polynomial; procedure is documented and repeatable across all fingers.</li>
+        <li><strong>Force-aware grasping demonstration</strong> — the hand grasps at least one simple object while monitoring fingertip force in real time, and adjusts grip strength to avoid crushing it.</li>
+        <li><strong>A repeatable test setup</strong> — the force-aware behavior is shown multiple times; results are documented with video, force logs, and test notes.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- YouTube video -->
+  <section class="hero is-small">
+    <div class="hero-body">
+      <div class="container">
+        <h2 class="title is-3">Video Presentation</h2>
+        <div class="columns is-centered has-text-centered">
+          <div class="column is-four-fifths">
+            <div class="publication-video">
+              <iframe src="https://www.youtube.com/embed/JkaxUblCGz0" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End youtube video -->
+
+  <!-- Reach Goals -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Reach Goals</h2>
+      <ol>
+        <li><strong>VR Teleoperation</strong> — Quest 2 hand tracking driving the robotic hand.</li>
+        <li><strong>Vision-Based Finger Pose Estimation</strong> — iPhone app (preferred) or laptop webcam fallback.</li>
+        <li><strong>Sim-to-Real Object Rotation</strong> — in-hand rotation in simulation, transferred to real hardware.</li>
+        <li><strong>Robotic Arm Integration</strong> — mount the hand on an arm for hard-coded pick-and-place.</li>
+        <li><strong>VR Arm Teleoperation</strong> — VR end-effector control for teleoperated pick-and-place.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Video carousel -->
+  <section class="hero is-small">
+    <div class="hero-body">
+      <div class="container">
+        <h2 class="title is-3">Demonstrations</h2>
+        <div id="results-carousel-video" class="carousel results-carousel">
+          <div class="item item-video1">
+            <video poster="" id="video1" controls muted loop height="100%" preload="metadata">
+              <source src="static/videos/carousel1.mp4" type="video/mp4">
+            </video>
+          </div>
+          <div class="item item-video2">
+            <video poster="" id="video2" controls muted loop height="100%" preload="metadata">
+              <source src="static/videos/carousel2.mp4" type="video/mp4">
+            </video>
+          </div>
+          <div class="item item-video3">
+            <video poster="" id="video3" controls muted loop height="100%" preload="metadata">
+              <source src="static/videos/carousel3.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End video carousel -->
+
+  <!-- Tech Requirements -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Technological Requirements</h2>
+      <h4>Hardware</h4>
+      <ul>
+        <li><strong>ESP32-S3 DevKit</strong> (WROOM-1) — 12-bit ADC, native USB, GPIO for four FSR channels and servo control.</li>
+        <li><strong>Four Pololu FSR #2728</strong> mounted to the AmazingHand fingertips.</li>
+        <li><strong>AmazingHand</strong> mechanical platform with four Feetech SCS0009 micro servos.</li>
+        <li>Power: <strong>2S LiPo</strong> (7.4V) stepped down to 5V via buck converter, with Schottky diode to block USB backfeed.</li>
+        <li><strong>Prototype board</strong>: solderable breadboard on the back of the hand, hosting the ESP32-S3, four 22kΩ voltage dividers, 100nF/10µF decoupling near the ADC, and 0.1" vertical headers for FSR Dupont connections.</li>
+        <li><strong>Reference loads</strong>: 3D-printed PLA calibration weights at 0.5N, 1N, 2N.</li>
+        <li><strong>Reference objects</strong>: a plastic cup plus simple objects selected during testing.</li>
+      </ul>
+      <h4>Software</h4>
+      <ul>
+        <li>Firmware: Arduino core for ESP32, ADC sampling at 100Hz, USB CDC at 115200 baud, CSV (timestamp + four forces in Newtons).</li>
+        <li>Simulation: MuJoCo or Isaac Sim.</li>
+        <li>Host: ROS 2 on Ubuntu — serial bridge node publishes <code>/tactile/forces</code>, subscribes to <code>/servo/commands</code>.</li>
+        <li>VR: Unity 2022.3 LTS, building the Quest 2 APK from <code>leggedrobotics/unity_ros_teleoperation</code>.</li>
+        <li>Vision: MediaPipe Hands (webcam fallback), ARKit HandPose (iPhone).</li>
+      </ul>
+      <h4>Tooling</h4>
+      <ul>
+        <li>UCSD Makerspace for fabrication and assembly.</li>
+        <li>Bambu Lab A1 Mini for 3D-printed parts and calibration weights.</li>
+        <li>Bench multimeter and oscilloscope.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Testing -->
+  <section class="section">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Testing Infrastructure</h2>
+      <ul>
+        <li><strong>Calibration rig</strong>: a fixture holds each sensor flat and level; weights (0.5N, 1N, 2N, 4N) are stacked sequentially with ADC logged over serial. Each sensor is cycled five times to characterize repeatability.</li>
+        <li><strong>Reference test objects</strong>: a cup and additional simple objects, each with a known crush threshold defining grasp pass/fail.</li>
+        <li><strong>Success criteria</strong>: error under 1N across the force range; 5/5 consecutive grasp-release cycles per object without exceeding the crush threshold.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Risks -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Constraints, Risk, and Feasibility</h2>
+      <ol>
+        <li><strong>FSR accuracy may be hard to hit within 1N.</strong> FSRs are nonlinear and drift with temperature and load cycles. Mitigation: calibration with 3D-printed weights and a nonlinear fit; repeatability testing across multiple cycles.</li>
+        <li><strong>PCB and wiring may inject noise.</strong> Analog FSR signals are sensitive to wiring length, grounding, and Vref stability. Mitigation: proper divider sizing, short analog traces, decoupling caps near the ADC.</li>
+        <li><strong>The hand may not produce enough force for reliable grasping.</strong> Mitigation: start with light, simple objects and basic grasp geometry.</li>
+        <li><strong>Reach goals depend on multiple subsystems.</strong> Mitigation: develop in parallel, integrate only after MVP validation; one owner per reach goal.</li>
+        <li><strong>Limited time and hardware.</strong> Mitigation: reuse available parts; MVP stays the priority; avoid non-essential dependencies for the MVP.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Team -->
+  <section class="section">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Team</h2>
+      <ul>
+        <li><strong>Bryce</strong> — Project lead. Electronics and sensor integration: prototype PCB design (ESP32, FSR voltage dividers, vertical headers), firmware for ADC sampling and USB serial streaming, 3D-printed calibration weights, schedule and milestone coordination.</li>
+        <li><strong>Shree</strong> — Force sensor calibration: develop and document the calibration procedure, fit the calibration curve, validate ≤1N error, characterize repeatability and drift.</li>
+        <li><strong>Ali</strong> — Simulation: bring up the AmazingHand in MuJoCo / Isaac Sim / PyBullet, verify finger kinematics, prepare for sim-to-real. Prior work at the Hao Su Lab (ICLR 2026) on robotic-hand simulation directly informs this role.</li>
+        <li><strong>Sidath</strong> — VR teleoperation: build the Quest 2 APK from <code>unity_ros_teleoperation</code> and establish the ROS link. Supports prototyping, actuation, testing, and integration.</li>
+        <li><strong>Thomas</strong> — Vision-based finger pose estimation: iPhone app (preferred) or webcam fallback, outputting normalized [0.0–1.0] curl per finger; mapping joint angles to a single per-finger value.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Timeline -->
+  <section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3">Timeline</h2>
+      <p><strong>MVP target: Week 6.</strong></p>
+      <table class="table is-bordered is-striped is-narrow is-fullwidth">
+        <thead>
+          <tr><th>Task</th><th>W2</th><th>W3</th><th>W4</th><th>W5</th><th>W6</th><th>W7</th><th>W8</th><th>W9</th><th>W10</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>System Design &amp; Component Selection</td><td>X</td><td>X</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>PCB Design &amp; Fabrication (Bryce)</td><td></td><td>X</td><td>X</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>FSR Calibration Procedure (Shree)</td><td></td><td></td><td>X</td><td>X</td><td>X</td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>Hand Assembly &amp; Sensor Integration</td><td></td><td>X</td><td>X</td><td>X</td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>Firmware — ESP32 USB Serial (Bryce)</td><td></td><td></td><td>X</td><td>X</td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>Simulation Bring-Up (Ali)</td><td></td><td>X</td><td>X</td><td>X</td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>Testing &amp; Force-Aware Grasping</td><td></td><td></td><td></td><td>X</td><td>X</td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>MVP Completion &amp; Validation</td><td></td><td></td><td></td><td></td><td>X</td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>Quest 2 VR Teleop APK (Sidath)</td><td></td><td></td><td></td><td></td><td></td><td>X</td><td>X</td><td>X</td><td></td></tr>
+          <tr><td>iPhone/Webcam Finger Pose (Thomas)</td><td></td><td></td><td></td><td></td><td></td><td>X</td><td>X</td><td>X</td><td></td></tr>
+          <tr><td>Sim-to-Real Transfer (Ali)</td><td></td><td></td><td></td><td></td><td></td><td></td><td>X</td><td>X</td><td></td></tr>
+          <tr><td>Arm Integration (if time)</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>X</td><td>X</td></tr>
+          <tr><td>Final Refinement &amp; Documentation</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>X</td><td>X</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Poster -->
+  <section class="hero is-small">
+    <div class="hero-body">
+      <div class="container">
+        <h2 class="title">Poster</h2>
+        <iframe src="static/pdfs/sample.pdf" width="100%" height="550"></iframe>
+      </div>
+    </div>
+  </section>
+  <!-- End poster -->
+
+  <!-- BibTeX -->
+  <section class="section" id="BibTeX">
+    <div class="container is-max-desktop content">
+      <h2 class="title">BibTeX</h2>
+      <pre><code>@misc{tritondroids2026tactilehands,
+  title  = {Tactile Hands: A Low-Cost Robotic Hand with Force-Aware Grasping},
+  author = {Hackel, Bryce and Sidath and Thomas and Shree and Ali},
+  year   = {2026},
+  note   = {CSE 145/237D, UC San Diego},
+  url    = {https://github.com/triton-droids/cse-145-237d-tactile-hands}
+}</code></pre>
+    </div>
+  </section>
+  <!-- End BibTeX -->
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content">
+            <p>
+              Built on the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a>,
+              adapted from the <a href="https://nerfies.github.io" target="_blank">Nerfies</a> project page.
+              Licensed under <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">CC BY-SA 4.0</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
