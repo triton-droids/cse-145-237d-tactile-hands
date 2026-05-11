@@ -70,7 +70,7 @@ def send_led_status():
 MaxSpeed = 7
 CloseSpeed = 3
 
-MiddlePos = [-0.6, 17.6, 12.6, -7.9, 0.9, -3.5, 17, -28.1] # calibrate
+MiddlePos = [1.4, 19.6, 12.6, -7.9, 13.9, 10.5, 17, -28.1] # calibrate
 
 c = Scs0009PyController(
         serial_port="COM3",
@@ -225,7 +225,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
             ring_pip = -(ring_pip_flex * 125 - 35)
             filtered["ring"] = update_joint(filtered["ring"], ring_pip)
 
-            thumb_pip_flex = normalize_angle(angle(lm[2], lm[3], lm[4]), 3.14, 1.0)
+            thumb_pip_flex = normalize_angle(angle(lm[2], lm[3], lm[4]), 3, 2)
             thumb_pip = -(thumb_pip_flex * 125 - 35)
             filtered["thumb"] = update_joint(filtered["thumb"], thumb_pip)
 
