@@ -110,20 +110,66 @@ def run_text(vr):
         time.sleep(1.0 / 30.0)
 
 
-def run_3d(vr):
+def run_3d(vr, target_fps):
+    import matplotlib
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-    print("[viz] 3D mode. Hold B to set reference. Close window or "
-          "Ctrl+C to quit.")
+    backend = matplotlib.get_backend().lower()
+    if "agg" in backend and backend != "qtagg":
+        print(f"[viz] WARNING: non-interactive backend '{backend}' — no "
+              f"window will show. Install a GUI backend: "
+              f"pip install PyQt6   (then it uses QtAgg). Falling back "
+              f"to text mode.")
+        return run_text(vr)
+
+    print(f"[viz] 3D mode ({matplotlib.get_backend()}), target "
+          f"{target_fps:.0f} FPS. Hold B to set reference. Close window "
+          f"or Ctrl+C to quit.")
+    plt.ion()
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(111, projection="3d")
+    # Plot axes are remapped so "up" is visually up:
+    #   plot-X = room X (right), plot-Y = room Z (fwd/back),
+    #   plot-Z = room Y (up / J2 source).
+    ax.set_xlabel("X right (m)")
+    ax.set_ylabel("Z fwd/back (m)")
+    ax.set_zlabel("Y up / J2 source (m)")
+    ax.set_title("VR right controller — SteamVR room frame (via ROS)")
+    HALF = 0.4  # half-extent of the view cube (m)
+
+    # --- Persistent artists: created once, data updated each frame ----
+    (trail_ln,) = ax.plot([], [], [], lw=1, alpha=0.5, color="gray")
+    (pt_ln,) = ax.plot([], [], [], "o", ms=9, color="tab:blue")
+    (ref_ln,) = ax.plot([], [], [], "*", ms=14, color="tab:purple")
+    (refseg_ln,) = ax.plot([], [], [], "--", color="tab:purple",
+                           alpha=0.6)
+    triad = {
+        c: ax.plot([], [], [], color=col, lw=2)[0]
+        for c, col in (("fwd", "tab:red"), ("up", "tab:green"),
+                       ("right", "tab:orange"))
+    }
+    info = ax.text2D(0.02, 0.98, "", transform=ax.transAxes, va="top",
+                     fontsize=9, family="monospace")
+
     trail = collections.deque(maxlen=TRAIL_LEN)
     src_ref = None
     ref_p = None
     prev_clutch = False
+    center = None
+    period = 1.0 / target_fps
+    fps_t = time.time()
+    fps_n = 0
+    fps = 0.0
+
+    def set3d(ln, xs, ys, zs):
+        # Inputs are room (x, y, z); swap y<->z so room-up (Y) is the
+        # plot's vertical axis.
+        ln.set_data(xs, zs)
+        ln.set_3d_properties(ys)
 
     while plt.fignum_exists(fig.number):
+        t0 = time.time()
         ok, p, R, clutch = poll(vr)
         if clutch and not prev_clutch and ok:
             src_ref = {a["joint"]: read_source(a["source"], p, R)
@@ -134,44 +180,41 @@ def run_3d(vr):
             ref_p = None
         prev_clutch = clutch
 
-        ax.cla()
-        ax.set_xlabel("X right (m)")
-        ax.set_ylabel("Y up / J2 source (m)")
-        ax.set_zlabel("Z (m)")
-        ax.set_title("VR right controller — SteamVR room frame (via ROS)")
-
         if ok:
             trail.append(p.copy())
             T = np.array(trail)
-            ax.plot(T[:, 0], T[:, 1], T[:, 2], lw=1, alpha=0.5,
-                    color="gray")
-            ax.scatter(*p, s=80, color="tab:blue")
+            set3d(trail_ln, T[:, 0], T[:, 1], T[:, 2])
+            set3d(pt_ln, [p[0]], [p[1]], [p[2]])
 
             L = 0.12
-            for vec, c, lbl in (
-                (R @ [0, 0, -1], "tab:red", "fwd"),
-                (R @ [0, 1, 0], "tab:green", "up"),
-                (R @ [1, 0, 0], "tab:orange", "right"),
-            ):
-                ax.quiver(p[0], p[1], p[2], vec[0] * L, vec[1] * L,
-                          vec[2] * L, color=c)
-                ax.text(p[0] + vec[0] * L, p[1] + vec[1] * L,
-                        p[2] + vec[2] * L, lbl, color=c, fontsize=8)
+            for key, vec in (("fwd", R @ [0, 0, -1]),
+                             ("up", R @ [0, 1, 0]),
+                             ("right", R @ [1, 0, 0])):
+                set3d(triad[key],
+                      [p[0], p[0] + vec[0] * L],
+                      [p[1], p[1] + vec[1] * L],
+                      [p[2], p[2] + vec[2] * L])
 
             if ref_p is not None:
-                ax.scatter(*ref_p, s=120, marker="*", color="tab:purple")
-                ax.plot([ref_p[0], p[0]], [ref_p[1], p[1]],
-                        [ref_p[2], p[2]], "--", color="tab:purple",
-                        alpha=0.6)
+                set3d(ref_ln, [ref_p[0]], [ref_p[1]], [ref_p[2]])
+                set3d(refseg_ln, [ref_p[0], p[0]], [ref_p[1], p[1]],
+                      [ref_p[2], p[2]])
+            else:
+                set3d(ref_ln, [], [], [])
+                set3d(refseg_ln, [], [], [])
 
-            c = p
-            r = 0.4
-            ax.set_xlim(c[0] - r, c[0] + r)
-            ax.set_ylim(c[1] - r, c[1] + r)
-            ax.set_zlim(c[2] - r, c[2] + r)
+            # Recenter only when the controller nears the cube edge —
+            # constant autoscale is what made the old version crawl.
+            if center is None or np.any(np.abs(p - center) > HALF * 0.6):
+                center = p.copy()
+                # plot X=room X, plot Y=room Z, plot Z=room Y (up).
+                ax.set_xlim(center[0] - HALF, center[0] + HALF)
+                ax.set_ylim(center[2] - HALF, center[2] + HALF)
+                ax.set_zlim(center[1] - HALF, center[1] + HALF)
 
             tgt = axis_targets(p, R, src_ref)
             lines = [
+                f"FPS: {fps:4.1f}",
                 f"clutch: {'B-DOWN' if clutch else 'released'}",
                 f"pos (m): {p[0]:+.3f} {p[1]:+.3f} {p[2]:+.3f}",
             ]
@@ -179,23 +222,30 @@ def run_3d(vr):
                 j = ax_["joint"]
                 s, d, dt = tgt[j]
                 u = SRC_UNIT[ax_["source"]]
-                if dt is None:
-                    lines.append(f"J{j}: {ax_['source']}={s:+.2f}{u}")
-                else:
-                    lines.append(
-                        f"J{j}: {ax_['source']}={s:+.2f}{u}  "
-                        f"Δ={d:+.2f}{u}  target {dt:+.1f}°"
-                    )
-            ax.text2D(0.02, 0.98, "\n".join(lines),
-                      transform=ax.transAxes, va="top", fontsize=9,
-                      family="monospace")
+                lines.append(
+                    f"J{j}: {ax_['source']}={s:+.2f}{u}" if dt is None
+                    else f"J{j}: {ax_['source']}={s:+.2f}{u}  "
+                         f"Δ={d:+.2f}{u}  target {dt:+.1f}°"
+                )
+            info.set_text("\n".join(lines))
+            info.set_color("black")
         else:
-            ax.text2D(0.5, 0.5,
-                      "no fresh VR data\n(publisher up? controller "
-                      "tracked?)",
-                      transform=ax.transAxes, ha="center", color="red")
+            info.set_text("no fresh VR data\n(publisher up? "
+                          "controller tracked?)")
+            info.set_color("red")
 
-        plt.pause(1.0 / 30.0)
+        fig.canvas.draw_idle()
+        fig.canvas.flush_events()
+
+        fps_n += 1
+        if time.time() - fps_t >= 0.5:
+            fps = fps_n / (time.time() - fps_t)
+            fps_t = time.time()
+            fps_n = 0
+
+        dt = period - (time.time() - t0)
+        if dt > 0:
+            time.sleep(dt)
 
     plt.close(fig)
 
@@ -204,6 +254,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--text", action="store_true",
                     help="force text mode even if matplotlib is available")
+    ap.add_argument("--fps", type=float, default=30.0,
+                    help="target 3D render FPS (default 30)")
     args = ap.parse_args()
 
     use_3d = not args.text
@@ -218,7 +270,10 @@ def main():
     print("[viz] subscribing to VR ROS topics…")
     vr = ControllerSubscriber(node_name="vr_visualizer")
     try:
-        (run_3d if use_3d else run_text)(vr)
+        if use_3d:
+            run_3d(vr, args.fps)
+        else:
+            run_text(vr)
     except KeyboardInterrupt:
         print("\n[viz] bye")
     finally:
