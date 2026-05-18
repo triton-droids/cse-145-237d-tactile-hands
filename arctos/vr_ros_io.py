@@ -228,12 +228,16 @@ def controller_roll_deg(R):
 
 
 # ---------------------------------------------------------------------------
-# 6-DOF frame calibration (Beat-Saber style). Capture a neutral pose with
-# the controller aligned to your forearm; every later pose is re-expressed
-# in that frame so yaw/pitch/roll/XYZ decouple and match your hand.
-#   p_aligned = R_cal^T (p - p_cal)      R_aligned = R_cal^T R
-# Identity calibration (R=I, p=0) is a no-op, so the system works
-# unchanged until a calibration is captured.
+# Frame calibration (Beat-Saber style) — ROTATION ONLY. Capture a neutral
+# pose with the controller aligned to your forearm; every later pose's
+# ORIENTATION is re-expressed in that frame so yaw/pitch/roll decouple and
+# match your hand:
+#   R_aligned = R_cal^T R
+# Position is passed through unchanged — height (J2/J3) stays world-
+# vertical (gravity), and the deadman clutch already re-zeros position
+# per engage, so there is nothing for a position offset to fix.
+# p_cal is still captured/stored (file schema stable, trivial to
+# re-enable) but NOT applied. Identity R_cal is a no-op.
 # ---------------------------------------------------------------------------
 CALIB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "vr_calibration.json")
@@ -273,9 +277,12 @@ def save_calibration(R_cal, p_cal, path=CALIB_PATH):
 
 
 def apply_calibration(p, R, R_cal, p_cal):
-    """Re-express a room-frame pose in the calibrated neutral frame."""
-    Rt = R_cal.T
-    return Rt @ (p - p_cal), Rt @ R
+    """
+    Rotation-only: re-express ORIENTATION in the calibrated frame,
+    position passes through untouched. p_cal is accepted (stable
+    signature) but intentionally unused.
+    """
+    return p, R_cal.T @ R
 
 
 def read_source(name, p, R):
