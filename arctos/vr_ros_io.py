@@ -1,0 +1,211 @@
+"""
+Shared VR<->ROS plumbing for the ARCTOS teleop stack.
+
+One publisher (vr_controller_publisher.py) owns the OpenVR connection and
+publishes the right controller's pose + clutch. Every consumer (teleop,
+visualizer) subscribes here instead of opening OpenVR itself — so there
+is exactly one SteamVR client, and N read-only consumers.
+
+Topics:
+  /vr/right_controller/pose  geometry_msgs/PoseStamped  (room frame)
+  /vr/clutch                 std_msgs/Bool              (B held)
+
+This module has NO openvr and NO python-can dependency on purpose, so
+the visualizer can import it without arm libraries.
+"""
+
+import math
+import threading
+import time
+
+import numpy as np
+
+TOPIC_POSE = "/vr/right_controller/pose"
+TOPIC_CLUTCH = "/vr/clutch"
+FRAME_ID = "vr_room"           # SteamVR standing room frame (OpenGL axes)
+
+# ---------------------------------------------------------------------------
+# Axis map — the single source of truth, imported by teleop AND visualizer.
+#   source "yaw" -> controller heading (deg);  "y" -> controller height (m)
+#   scale         -> joint-deg per source-unit
+#   rpm_floor     -> min |rpm| outside deadband (loaded joints stall below
+#                    break-away torque); pos_deadband -> |err| to command 0
+# ---------------------------------------------------------------------------
+AXES = [
+    {
+        "joint": 1, "source": "yaw",
+        "scale": 1.0, "invert": True,
+        "kp": 6.0, "max_travel": 45.0,
+        "rpm_floor": 8, "pos_deadband": 1.0,
+    },
+    {
+        "joint": 2, "source": "y",
+        "scale": 60.0, "invert": True,
+        "kp": 6.0, "max_travel": 30.0,
+        "rpm_floor": 45, "pos_deadband": 2.0,
+    },
+]
+
+YAW_DEADBAND_DEG = 1.0
+Y_DEADBAND_M = 0.01
+SRC_DEADBAND = {"yaw": YAW_DEADBAND_DEG, "y": Y_DEADBAND_M}
+SRC_UNIT = {"yaw": "°", "y": "m"}
+
+
+# ---------------------------------------------------------------------------
+# Pose math
+# ---------------------------------------------------------------------------
+def quat_to_mat(w, x, y, z):
+    """Unit quaternion (w,x,y,z) -> 3x3 rotation matrix."""
+    n = math.sqrt(w * w + x * x + y * y + z * z) or 1.0
+    w, x, y, z = w / n, x / n, y / n, z / n
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def mat_to_quat(R):
+    """3x3 rotation matrix -> unit quaternion (w,x,y,z)."""
+    tr = R[0, 0] + R[1, 1] + R[2, 2]
+    if tr > 0:
+        s = math.sqrt(tr + 1.0) * 2
+        w = 0.25 * s
+        x = (R[2, 1] - R[1, 2]) / s
+        y = (R[0, 2] - R[2, 0]) / s
+        z = (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
+        w = (R[2, 1] - R[1, 2]) / s
+        x = 0.25 * s
+        y = (R[0, 1] + R[1, 0]) / s
+        z = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
+        w = (R[0, 2] - R[2, 0]) / s
+        x = (R[0, 1] + R[1, 0]) / s
+        y = 0.25 * s
+        z = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
+        w = (R[1, 0] - R[0, 1]) / s
+        x = (R[0, 2] + R[2, 0]) / s
+        y = (R[1, 2] + R[2, 1]) / s
+        z = 0.25 * s
+    return w, x, y, z
+
+
+def controller_yaw_deg(R):
+    """
+    Heading of the controller in the horizontal plane.
+
+    SteamVR room frame is OpenGL: +X right, +Y up, -Z forward. The
+    controller's forward axis in room space is R @ (0,0,-1). Yaw is its
+    angle about +Y (up): 0 pointing forward, +90 pointing right.
+    """
+    fwd = R @ np.array([0.0, 0.0, -1.0])
+    return math.degrees(math.atan2(fwd[0], -fwd[2]))
+
+
+def read_source(name, p, R):
+    """Map a controller pose to a control-source scalar."""
+    if name == "yaw":
+        return controller_yaw_deg(R)
+    if name == "y":
+        return p[1]                       # room +Y, metres
+    raise ValueError(f"unknown source {name!r}")
+
+
+def deadband(value, width):
+    """Zero within +/- width, shifted so there is no step at the edge."""
+    if abs(value) <= width:
+        return 0.0
+    return value - math.copysign(width, value)
+
+
+# ---------------------------------------------------------------------------
+# ROS subscriber (used by every consumer)
+# ---------------------------------------------------------------------------
+class ControllerSubscriber:
+    """
+    Subscribes to the controller pose + clutch and keeps the latest of
+    each, with wall-clock receive times so consumers can detect staleness
+    (a teleop must NOT drive on a stale pose). Spins its own rclpy node on
+    a background thread.
+    """
+
+    def __init__(self, node_name="vr_consumer"):
+        import rclpy
+        from rclpy.executors import SingleThreadedExecutor
+        from geometry_msgs.msg import PoseStamped
+        from std_msgs.msg import Bool
+
+        self._rclpy = rclpy
+        if not rclpy.ok():
+            rclpy.init()
+        self._node = rclpy.create_node(node_name)
+        self._lock = threading.Lock()
+        self._p = None
+        self._R = None
+        self._pose_t = 0.0
+        self._clutch = False
+        self._clutch_t = 0.0
+
+        self._node.create_subscription(
+            PoseStamped, TOPIC_POSE, self._on_pose, 10
+        )
+        self._node.create_subscription(
+            Bool, TOPIC_CLUTCH, self._on_clutch, 10
+        )
+        self._exec = SingleThreadedExecutor()
+        self._exec.add_node(self._node)
+        self._spin = threading.Thread(
+            target=self._exec.spin, daemon=True, name="vr-ros-spin"
+        )
+        self._spin.start()
+
+    def _on_pose(self, msg):
+        q = msg.pose.orientation
+        R = quat_to_mat(q.w, q.x, q.y, q.z)
+        p = np.array([
+            msg.pose.position.x,
+            msg.pose.position.y,
+            msg.pose.position.z,
+        ])
+        with self._lock:
+            self._p = p
+            self._R = R
+            self._pose_t = time.time()
+
+    def _on_clutch(self, msg):
+        with self._lock:
+            self._clutch = bool(msg.data)
+            self._clutch_t = time.time()
+
+    def latest(self):
+        """
+        Return (p, R, pose_age_s, clutch, clutch_age_s).
+        p/R are None until the first pose arrives; ages are large
+        (1e9) until the first message of that kind is received.
+        """
+        now = time.time()
+        with self._lock:
+            pose_age = (now - self._pose_t) if self._pose_t else 1e9
+            clutch_age = (now - self._clutch_t) if self._clutch_t else 1e9
+            return self._p, self._R, pose_age, self._clutch, clutch_age
+
+    def shutdown(self):
+        try:
+            self._exec.shutdown()
+        except Exception:
+            pass
+        try:
+            self._node.destroy_node()
+        except Exception:
+            pass
+        try:
+            if self._rclpy.ok():
+                self._rclpy.shutdown()
+        except Exception:
+            pass
