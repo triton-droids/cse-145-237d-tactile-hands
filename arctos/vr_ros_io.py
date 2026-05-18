@@ -103,7 +103,8 @@ AXES = [
         "scale":        240.0,
         "invert":       True,
         "kp":           6.0,
-        "max_travel":   1000.0,   # TEMP: clamp effectively off until tuned
+        "max_travel":   1000.0,   # intentionally large: soft travel
+                                  # clamp + runaway guard effectively off
         "max_rpm":      240,      # 3x J1 cap (was the shared 80)
         "rpm_floor":    45,
         "pos_deadband": 2.0,
@@ -117,7 +118,8 @@ AXES = [
         "scale":        240.0,
         "invert":       False,
         "kp":           6.0,
-        "max_travel":   1000.0,   # TEMP: clamp effectively off until tuned
+        "max_travel":   1000.0,   # intentionally large: soft travel
+                                  # clamp + runaway guard effectively off
         "max_rpm":      240,
         "rpm_floor":    45,
         "pos_deadband": 2.0,
