@@ -126,8 +126,18 @@ def run_3d(vr, target_fps):
     print(f"[viz] 3D mode ({matplotlib.get_backend()}), target "
           f"{target_fps:.0f} FPS. Hold B to set reference. Close window "
           f"or Ctrl+C to quit.")
-    plt.ion()
-    fig = plt.figure(figsize=(8, 7))
+    try:
+        plt.ion()
+        fig = plt.figure(figsize=(8, 7))
+        # Force the GUI canvas to realize now so a backend/plugin
+        # failure (e.g. missing libxcb-cursor0) is catchable here
+        # instead of aborting mid-run.
+        fig.canvas.draw()
+    except Exception as e:
+        print(f"[viz] 3D backend failed to start ({e}). If this is the "
+              f"Qt xcb plugin: sudo apt install libxcb-cursor0. Falling "
+              f"back to text mode.")
+        return run_text(vr)
     ax = fig.add_subplot(111, projection="3d")
     # Plot axes are remapped so "up" is visually up:
     #   plot-X = room X (right), plot-Y = room Z (fwd/back),
