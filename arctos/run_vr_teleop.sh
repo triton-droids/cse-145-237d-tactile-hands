@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Launch the VR teleop stack: OpenVR->ROS publisher, then the teleop,
-# optionally the visualizer. Sources ROS2 Jazzy and uses SYSTEM python
-# (rclpy is not importable from conda).
+# optionally the visualizer and/or the AmazingHand. Sources ROS2 Jazzy
+# and uses SYSTEM python (rclpy is not importable from conda).
 #
-#   ./run_vr_teleop.sh            # publisher + teleop
-#   ./run_vr_teleop.sh --viz      # + 3D visualizer
-#   ./run_vr_teleop.sh --viz --text   # + text visualizer
+#   ./run_vr_teleop.sh                  # publisher + teleop
+#   ./run_vr_teleop.sh --viz            # + 3D visualizer
+#   ./run_vr_teleop.sh --viz --text     # + text visualizer
+#   ./run_vr_teleop.sh --hand           # + AmazingHand (--live)
+#   ./run_vr_teleop.sh --viz --hand     # everything
 #
-# Ctrl+C (or any exit) tears down ALL children. The teleop is sent
-# SIGINT so its finally-block runs (stop joints, disconnect, free the
-# CAN port) — this is what prevents the stale-/dev/ttyACM0 lockups.
+# Ctrl+C (or any exit) tears down ALL children. Teleop and hand are
+# sent SIGINT so their finally-blocks run (teleop: stop joints,
+# disconnect, free the CAN port; hand: open then torque off) — this is
+# what prevents the stale-/dev/ttyACM* lockups.
 set -euo pipefail
 
 ROS_SETUP=/opt/ros/jazzy/setup.bash
@@ -17,10 +20,12 @@ PY=/usr/bin/python3
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WANT_VIZ=0
+WANT_HAND=0
 VIZ_ARGS=()
 for a in "$@"; do
     case "$a" in
         --viz)  WANT_VIZ=1 ;;
+        --hand) WANT_HAND=1 ;;
         --text) VIZ_ARGS+=(--text) ;;
         *) echo "unknown arg: $a" >&2; exit 2 ;;
     esac
@@ -34,21 +39,30 @@ set +u
 source "$ROS_SETUP"
 set -u
 
-PUB_PID=""; VIZ_PID=""; TELEOP_PID=""
+PUB_PID=""; VIZ_PID=""; TELEOP_PID=""; HAND_PID=""
+
+# SIGINT a pid and wait up to ~5s for it to exit (so its finally runs).
+graceful() {
+    local pid="$1"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 0
+    kill -INT "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.25
+    done
+    kill -9 "$pid" 2>/dev/null || true
+}
+
 cleanup() {
     trap - EXIT INT TERM
     echo
     echo "[run] shutting down…"
-    # Teleop first, with SIGINT, and give its finally time to stop the
-    # arm + free the port before anything else goes away.
-    if [ -n "$TELEOP_PID" ] && kill -0 "$TELEOP_PID" 2>/dev/null; then
-        kill -INT "$TELEOP_PID" 2>/dev/null || true
-        for _ in $(seq 1 20); do
-            kill -0 "$TELEOP_PID" 2>/dev/null || break
-            sleep 0.25
-        done
-        kill -9 "$TELEOP_PID" 2>/dev/null || true
-    fi
+    # Hardware-touching children first, in parallel, each given time
+    # for its cleanup (teleop: arm stop + free CAN port; hand: open +
+    # torque off). Then the data sources.
+    graceful "$TELEOP_PID" &
+    graceful "$HAND_PID" &
+    wait
     for pid in "$VIZ_PID" "$PUB_PID"; do
         [ -n "$pid" ] && kill -INT "$pid" 2>/dev/null || true
     done
@@ -70,6 +84,11 @@ kill -0 "$PUB_PID" 2>/dev/null || { echo "[run] publisher failed" >&2; exit 1; }
 if [ "$WANT_VIZ" = 1 ]; then
     echo "[run] starting visualizer…"
     "$PY" vr_visualizer.py "${VIZ_ARGS[@]}" & VIZ_PID=$!
+fi
+
+if [ "$WANT_HAND" = 1 ]; then
+    echo "[run] starting AmazingHand (--live)…"
+    "$PY" vr_hand_control.py --live & HAND_PID=$!
 fi
 
 echo "[run] starting teleop (foreground)…"
