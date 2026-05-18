@@ -40,6 +40,7 @@ CMD_SET_HOME_PARAMS = 0x90      # trigger level, direction, speed, end-limit, mo
 CMD_GO_HOME = 0x91              # run the firmware homing sequence
 CMD_SET_AXIS_ZERO = 0x92        # set current encoder position as zero
 CMD_QUERY_STATUS = 0xF1         # uint8 motor state
+CMD_SPEED_MODE = 0xF6           # run continuously at a commanded speed
 CMD_EMERGENCY_STOP = 0xF7       # uint8 status
 CMD_MOVE_RELATIVE = 0xFD        # relative move by pulse count
 
@@ -94,13 +95,34 @@ class CommandTimeout(ArctosError):
 # ---------------------------------------------------------------------------
 # Port resolution (no source-file rewriting)
 # ---------------------------------------------------------------------------
+# Valve USB vendor ID. The Index controllers / base stations enumerate a
+# "Watchman" wireless-receiver serial device that auto-detect must never
+# grab (opening it does nothing useful and steals the wrong tty when the
+# SLCAN adapter isn't pinned via ARCTOS_COM_PORT).
+_VALVE_VID = 0x28DE
+_PORT_DENY_SUBSTRINGS = ("watchman", "valve", "vr radio")
+
+
+def _is_denied_port(port_info) -> bool:
+    if getattr(port_info, "vid", None) == _VALVE_VID:
+        return True
+    haystack = " ".join(
+        str(getattr(port_info, attr, "") or "")
+        for attr in ("description", "manufacturer", "product")
+    ).lower()
+    return any(s in haystack for s in _PORT_DENY_SUBSTRINGS)
+
+
 def resolve_com_port(preferred: Optional[str] = None) -> str:
     """
     Pick a serial port in this order:
       1. `preferred` argument if given and openable
       2. ARCTOS_COM_PORT env var if set and openable
-      3. first available serial port on the system
-    Raises ArctosError if no serial ports are present.
+      3. first available serial port, skipping known non-CAN devices
+         (Valve "Watchman" VR receiver and friends)
+    An explicit preferred/env port is used as-is even if it looks denied;
+    only the auto-detect scan applies the denylist.
+    Raises ArctosError if no usable serial ports are present.
     """
     candidates = []
     if preferred:
@@ -118,9 +140,27 @@ def resolve_com_port(preferred: Optional[str] = None) -> str:
             continue
 
     ports = serial.tools.list_ports.comports()
-    if not ports:
-        raise ArctosError("No serial ports found. Plug in the SLCAN adapter.")
-    chosen = ports[0].device
+    # Native motherboard UARTs (/dev/ttyS*) always enumerate with no USB
+    # VID and are never the SLCAN adapter. Require a real USB device so we
+    # fail loudly instead of grabbing /dev/ttyS31.
+    usb_ports = [p for p in ports if getattr(p, "vid", None) is not None]
+    if not usb_ports:
+        raise ArctosError(
+            "No USB serial adapter found (only legacy /dev/ttyS* ports). "
+            "Plug in the SLCAN/CAN adapter — it should appear as "
+            "/dev/ttyACM* or /dev/ttyUSB* — or set ARCTOS_COM_PORT."
+        )
+
+    usable = [p for p in usb_ports if not _is_denied_port(p)]
+    for p in usb_ports:
+        if _is_denied_port(p):
+            print(f"[ARCTOS] Skipping {p.device} ({p.description}) — VR/Valve device")
+    if not usable:
+        raise ArctosError(
+            "Only VR/Valve USB serial devices present. Plug in the SLCAN "
+            "adapter, or set ARCTOS_COM_PORT to force a specific port."
+        )
+    chosen = usable[0].device
     print(f"[ARCTOS] Auto-selected port {chosen}")
     return chosen
 
@@ -188,6 +228,9 @@ class ArctosArm:
             target=self._rx_loop, daemon=True, name="arctos-rx"
         )
         self._rx_thread.start()
+        # The slcan adapter and the MKS boards need a moment after bus
+        # init; the very first frame to a node is otherwise often dropped.
+        time.sleep(0.3)
         if sync_encoders:
             self.sync_all_encoders()
 
@@ -345,6 +388,8 @@ class ArctosArm:
             self._handle_home_response(joint, body)
         elif code in (CMD_SET_HOME_PARAMS, CMD_SET_AXIS_ZERO):
             self._handle_simple_ack(joint, code, body)
+        elif code == CMD_SPEED_MODE:
+            self._handle_speed_response(joint, body)
         elif code == CMD_QUERY_STATUS:
             self._handle_status_response(joint, body)
         elif code == CMD_EMERGENCY_STOP:
@@ -388,6 +433,16 @@ class ArctosArm:
             self._fail_pending(
                 joint, code, MoveFailed(f"joint {joint} move failed (status={status})")
             )
+
+    def _handle_speed_response(self, joint: int, body: bytes) -> None:
+        # 0xF6 response body: [status] (1 byte). Speed mode has no
+        # "complete": status 1 = run accepted, 2 = at-speed/decel done,
+        # 0 = no-op (e.g. speed-0 commanded while already stopped). None
+        # of these is an error we act on — the deadman clutch and E-stop
+        # are the real safety — so resolve on any reply with the status.
+        if len(body) != 1:
+            return
+        self._complete_pending(joint, CMD_SPEED_MODE, body[0])
 
     def _handle_status_response(self, joint: int, body: bytes) -> None:
         if len(body) != 1:
@@ -546,6 +601,75 @@ class ArctosArm:
         return futures
 
     # ------------------------------------------------------------------
+    # Speed (velocity) mode
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _build_speed_body(rpm: int, reverse: bool, acc: int) -> bytes:
+        # 0xF6 speed-mode body (3 bytes, excluding CRC):
+        #   [F6, dir|speed_hi(4b), speed_lo(8b), acc]
+        # Same dir/speed packing as the 0xFD relative-move body, minus the
+        # pulse count. rpm=0 with a non-zero acc is a graceful decel-to-stop.
+        rpm = abs(rpm) & 0x0FFF
+        speed_hi = (rpm >> 8) & 0x0F
+        dir_byte = (0x80 if reverse else 0x00) | speed_hi
+        return bytes([CMD_SPEED_MODE, dir_byte, rpm & 0xFF, acc & 0xFF])
+
+    def set_joint_speed(
+        self,
+        joint: int,
+        rpm: int,
+        acc: int = DEFAULT_ACC,
+        *,
+        wait: bool = True,
+        timeout: float = DEFAULT_QUERY_TIMEOUT,
+    ) -> Future:
+        """
+        Run a joint continuously in speed mode (0xF6).
+
+        `rpm` is signed motor RPM; its sign sets direction (then XORed with
+        INVERT_DIRECTION[joint]). `rpm=0` issues a graceful stop — the
+        firmware decelerates at `acc`. Speed mode never "completes": the
+        motor acks immediately and keeps spinning until the next
+        set_joint_speed call (or an emergency stop).
+
+        Designed for teleop: call with wait=False at loop rate. Note this
+        does NOT update current_angles — call read_encoder for truth.
+        """
+        self._validate_joint(joint)
+        if abs(rpm) > 3000:
+            raise ValueError(f"rpm must be -3000..3000, got {rpm}")
+        if not 0 <= acc <= 255:
+            raise ValueError(f"acc must be 0..255, got {acc}")
+        reverse = (rpm < 0) ^ self.INVERT_DIRECTION[joint]
+        body = self._build_speed_body(int(rpm), reverse, acc)
+        fut = self._register_pending(joint, CMD_SPEED_MODE)
+        self._send_frame(joint, body)
+        if wait:
+            try:
+                fut.result(timeout=timeout)
+            except FutureTimeout:
+                self._fail_pending(
+                    joint, CMD_SPEED_MODE, CommandTimeout("speed mode")
+                )
+                raise CommandTimeout(
+                    f"joint {joint} speed-mode command timeout"
+                )
+        return fut
+
+    def stop_joint(
+        self,
+        joint: int,
+        acc: int = DEFAULT_ACC,
+        *,
+        wait: bool = True,
+        timeout: float = DEFAULT_QUERY_TIMEOUT,
+    ) -> Future:
+        """Graceful speed-mode stop: decelerate this joint to rest at `acc`."""
+        return self.set_joint_speed(
+            joint, 0, acc, wait=wait, timeout=timeout
+        )
+
+    # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
     def read_encoder(
@@ -564,29 +688,50 @@ class ArctosArm:
             raise CommandTimeout(f"joint {joint} encoder read timeout")
 
     def sync_all_encoders(
-        self, timeout: float = DEFAULT_QUERY_TIMEOUT
+        self,
+        timeout: float = DEFAULT_QUERY_TIMEOUT,
+        retries: int = 3,
     ) -> Dict[int, float]:
         """
         Read all six joints concurrently and update current_angles.
-        Returns the fresh angle dict.
-        """
-        futures: Dict[int, Future] = {}
-        for joint in self.JOINTS:
-            futures[joint] = self._register_pending(joint, CMD_READ_ENCODER)
-            self._send_frame(joint, bytes([CMD_READ_ENCODER]))
 
+        A node sometimes drops the first encoder request after bus init,
+        so timed-out joints are retried up to `retries` times before
+        giving up. Returns the fresh angle dict.
+        """
         results: Dict[int, float] = {}
-        for joint, fut in futures.items():
-            try:
-                results[joint] = fut.result(timeout=timeout)
-            except FutureTimeout:
-                self._fail_pending(
-                    joint, CMD_READ_ENCODER, CommandTimeout("encoder read")
+        pending_joints = list(self.JOINTS)
+
+        for attempt in range(1, retries + 1):
+            futures: Dict[int, Future] = {}
+            for joint in pending_joints:
+                futures[joint] = self._register_pending(joint, CMD_READ_ENCODER)
+                self._send_frame(joint, bytes([CMD_READ_ENCODER]))
+
+            still_pending = []
+            for joint, fut in futures.items():
+                try:
+                    results[joint] = fut.result(timeout=timeout)
+                except FutureTimeout:
+                    self._fail_pending(
+                        joint, CMD_READ_ENCODER, CommandTimeout("encoder read")
+                    )
+                    still_pending.append(joint)
+
+            if not still_pending:
+                return results
+
+            pending_joints = still_pending
+            if attempt < retries:
+                print(
+                    f"[ARCTOS] encoder read retry {attempt} for joints "
+                    f"{still_pending}"
                 )
-                raise CommandTimeout(
-                    f"joint {joint} encoder read timeout"
-                )
-        return results
+
+        raise CommandTimeout(
+            f"joints {pending_joints} did not respond to encoder read "
+            f"after {retries} attempts"
+        )
 
     def query_status(
         self, joint: int, timeout: float = DEFAULT_QUERY_TIMEOUT

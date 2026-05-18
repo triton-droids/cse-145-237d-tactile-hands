@@ -1,0 +1,20 @@
+{
+  "default_bindings": [
+    { "controller_type": "knuckles", "binding_url": "teleop_binding.json" }
+  ],
+  "actions": [
+    { "name": "/actions/arctos/in/hand_pose", "type": "pose" },
+    { "name": "/actions/arctos/in/clutch",    "type": "boolean" }
+  ],
+  "action_sets": [
+    { "name": "/actions/arctos", "usage": "leftright" }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/arctos": "ARCTOS Rotation Teleop",
+      "/actions/arctos/in/hand_pose": "Controller pose",
+      "/actions/arctos/in/clutch": "Clutch (hold B to engage)"
+    }
+  ]
+}

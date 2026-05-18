@@ -1,0 +1,23 @@
+{
+  "bindings": {
+    "/actions/arctos": {
+      "sources": [
+        {
+          "path": "/user/hand/right/input/b",
+          "mode": "button",
+          "inputs": { "click": { "output": "/actions/arctos/in/clutch" } }
+        }
+      ],
+      "poses": [
+        {
+          "output": "/actions/arctos/in/hand_pose",
+          "path": "/user/hand/right/pose/raw"
+        }
+      ]
+    }
+  },
+  "controller_type": "knuckles",
+  "description": "ARCTOS rotation teleop bindings",
+  "name": "ARCTOS Rotation Teleop",
+  "category": "tool"
+}
