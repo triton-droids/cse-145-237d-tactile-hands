@@ -102,6 +102,13 @@ class CommandTimeout(ArctosError):
 _VALVE_VID = 0x28DE
 _PORT_DENY_SUBSTRINGS = ("watchman", "valve", "vr radio")
 
+# The CAN adapter on this rig is a CANable2 (VID:PID 16D0:117E). Other
+# USB-serial devices share the bus now (e.g. the AmazingHand servo
+# adapter, a QinHeng 1A86 chip), so auto-detect must deterministically
+# PREFER the CANable rather than grab whatever enumerates first.
+_CANABLE_VID = 0x16D0
+_PORT_PREFER_SUBSTRINGS = ("canable", "slcan", "cantact", "gs_usb")
+
 
 def _is_denied_port(port_info) -> bool:
     if getattr(port_info, "vid", None) == _VALVE_VID:
@@ -111,6 +118,16 @@ def _is_denied_port(port_info) -> bool:
         for attr in ("description", "manufacturer", "product")
     ).lower()
     return any(s in haystack for s in _PORT_DENY_SUBSTRINGS)
+
+
+def _is_canable_port(port_info) -> bool:
+    if getattr(port_info, "vid", None) == _CANABLE_VID:
+        return True
+    haystack = " ".join(
+        str(getattr(port_info, attr, "") or "")
+        for attr in ("description", "manufacturer", "product")
+    ).lower()
+    return any(s in haystack for s in _PORT_PREFER_SUBSTRINGS)
 
 
 def resolve_com_port(preferred: Optional[str] = None) -> str:
@@ -160,8 +177,26 @@ def resolve_com_port(preferred: Optional[str] = None) -> str:
             "Only VR/Valve USB serial devices present. Plug in the SLCAN "
             "adapter, or set ARCTOS_COM_PORT to force a specific port."
         )
+
+    # Deterministically prefer the CANable; other USB-serial devices
+    # (AmazingHand servo adapter, etc.) share the bus and enumeration
+    # order is not stable.
+    canable = [p for p in usable if _is_canable_port(p)]
+    if canable:
+        chosen = canable[0].device
+        if len(usable) > 1:
+            others = ", ".join(
+                f"{p.device}({p.description})" for p in usable
+                if p.device != chosen
+            )
+            print(f"[ARCTOS] Preferring CANable {chosen} over: {others}")
+        else:
+            print(f"[ARCTOS] Auto-selected port {chosen}")
+        return chosen
+
     chosen = usable[0].device
-    print(f"[ARCTOS] Auto-selected port {chosen}")
+    print(f"[ARCTOS] No CANable VID/name match; auto-selected {chosen} "
+          f"(set ARCTOS_COM_PORT if this is wrong)")
     return chosen
 
 
