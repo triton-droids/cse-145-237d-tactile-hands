@@ -6,12 +6,28 @@
           "path": "/user/hand/right/input/b",
           "mode": "button",
           "inputs": { "click": { "output": "/actions/arctos/in/clutch" } }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": { "pull": { "output": "/actions/arctos/in/trigger" } }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "force",
+          "inputs": { "force": { "output": "/actions/arctos/in/grip" } }
         }
       ],
       "poses": [
         {
           "output": "/actions/arctos/in/hand_pose",
           "path": "/user/hand/right/pose/raw"
+        }
+      ],
+      "skeleton": [
+        {
+          "output": "/actions/arctos/in/skeleton_right",
+          "path": "/user/hand/right/input/skeleton/right"
         }
       ]
     }

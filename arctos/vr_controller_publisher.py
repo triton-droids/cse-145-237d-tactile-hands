@@ -23,12 +23,15 @@ import numpy as np
 import openvr
 import rclpy
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float32, Float32MultiArray
 
 from vr_ros_io import (
     FRAME_ID,
     TOPIC_CLUTCH,
+    TOPIC_FINGERS,
+    TOPIC_GRIP,
     TOPIC_POSE,
+    TOPIC_TRIGGER,
     mat_to_quat,
     ros_init_no_signals,
 )
@@ -45,6 +48,9 @@ def main():
     vri.setActionManifestPath(MANIFEST)
     a_pose = vri.getActionHandle("/actions/arctos/in/hand_pose")
     a_clutch = vri.getActionHandle("/actions/arctos/in/clutch")
+    a_skel = vri.getActionHandle("/actions/arctos/in/skeleton_right")
+    a_trigger = vri.getActionHandle("/actions/arctos/in/trigger")
+    a_grip = vri.getActionHandle("/actions/arctos/in/grip")
     set_main = vri.getActionSetHandle("/actions/arctos")
 
     active = (openvr.VRActiveActionSet_t * 1)()
@@ -57,8 +63,12 @@ def main():
     node = rclpy.create_node("vr_controller_publisher")
     pose_pub = node.create_publisher(PoseStamped, TOPIC_POSE, 10)
     clutch_pub = node.create_publisher(Bool, TOPIC_CLUTCH, 10)
-    print(f"[pub] publishing {TOPIC_POSE} + {TOPIC_CLUTCH} "
-          f"at ~{PUBLISH_HZ:.0f} Hz. Ctrl+C to quit.")
+    finger_pub = node.create_publisher(Float32MultiArray, TOPIC_FINGERS, 10)
+    trig_pub = node.create_publisher(Float32, TOPIC_TRIGGER, 10)
+    grip_pub = node.create_publisher(Float32, TOPIC_GRIP, 10)
+    print(f"[pub] publishing pose/clutch + {TOPIC_FINGERS}/"
+          f"{TOPIC_TRIGGER}/{TOPIC_GRIP} at ~{PUBLISH_HZ:.0f} Hz. "
+          f"Ctrl+C to quit.")
 
     period = 1.0 / PUBLISH_HZ
     n = 0
@@ -75,6 +85,33 @@ def main():
             cmsg = Bool()
             cmsg.data = clutch
             clutch_pub.publish(cmsg)
+
+            # --- Hand: capacitive finger curls + trigger + grip ------
+            trig = float(vri.getAnalogActionData(
+                a_trigger, openvr.k_ulInvalidInputValueHandle).x)
+            grip = float(vri.getAnalogActionData(
+                a_grip, openvr.k_ulInvalidInputValueHandle).x)
+            try:
+                skel = vri.getSkeletalSummaryData(
+                    a_skel, openvr.VRSummaryType_FromAnimation)
+                # flFingerCurl order = thumb,index,middle,ring,pinky
+                curls = [float(np.clip(skel.flFingerCurl[i], 0.0, 1.0))
+                         for i in range(5)]
+            except Exception:
+                # No skeletal data (controller not reporting it): fall
+                # back to trigger+grip blend, same as the MuJoCo teleop.
+                close = float(np.clip(trig + 0.5 * grip, 0.0, 1.0))
+                curls = [close] * 5
+
+            fmsg = Float32MultiArray()
+            fmsg.data = curls
+            finger_pub.publish(fmsg)
+            tmsg = Float32()
+            tmsg.data = trig
+            trig_pub.publish(tmsg)
+            gmsg = Float32()
+            gmsg.data = grip
+            grip_pub.publish(gmsg)
 
             pd = vri.getPoseActionDataRelativeToNow(
                 a_pose,
@@ -106,8 +143,10 @@ def main():
 
             n += 1
             if n % int(PUBLISH_HZ * 3) == 0:
+                cs = " ".join(f"{c:.2f}" for c in curls)
                 print(f"[pub] alive — clutch={'B' if clutch else '-'} "
-                      f"pose={'ok' if pd.pose.bPoseIsValid else 'INVALID'}")
+                      f"pose={'ok' if pd.pose.bPoseIsValid else 'INVALID'} "
+                      f"trig={trig:.2f} grip={grip:.2f} curls=[{cs}]")
 
             dt = period - (time.time() - t0)
             if dt > 0:

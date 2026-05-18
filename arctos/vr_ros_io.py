@@ -49,42 +49,105 @@ TOPIC_POSE = "/vr/right_controller/pose"
 TOPIC_CLUTCH = "/vr/clutch"
 FRAME_ID = "vr_room"           # SteamVR standing room frame (OpenGL axes)
 
-# ---------------------------------------------------------------------------
-# Axis map — the single source of truth, imported by teleop AND visualizer.
-#   source "yaw" -> controller heading (deg);  "y" -> controller height (m)
-#   scale         -> joint-deg per source-unit
-#   rpm_floor     -> min |rpm| outside deadband (loaded joints stall below
-#                    break-away torque); pos_deadband -> |err| to command 0
-# ---------------------------------------------------------------------------
-# One-Euro filter spec for a noisy source. Lower mincutoff = smoother
-# but laggier at low speed; higher beta = less lag when moving fast.
-# Yaw tracking has a few degrees of jitter, so filter it; height is
-# steadier and a position source, left unfiltered (filter=None).
+# Hand / capacitive finger sensing (Valve Index).
+TOPIC_FINGERS = "/vr/finger_curls"   # std_msgs/Float32MultiArray, len 5
+TOPIC_TRIGGER = "/vr/trigger"        # std_msgs/Float32, 0..1
+TOPIC_GRIP = "/vr/grip"              # std_msgs/Float32, 0..1
+# Fixed order of TOPIC_FINGERS .data — SteamVR flFingerCurl order.
+# Each value 0.0 = finger straight/open, 1.0 = fully curled/closed.
+# The AmazingHand has no pinky; the driver uses the first four.
+FINGER_ORDER = ("thumb", "index", "middle", "ring", "pinky")
+
+# One-Euro filter spec for a noisy source.
+#   mincutoff : lower  = smoother but laggier at low speed
+#   beta      : higher = less lag when moving fast
+# Yaw has a few degrees of jitter so it is filtered; height is steadier
+# (a position source) and is left unfiltered (filter=None below).
 YAW_FILTER = {"mincutoff": 1.2, "beta": 0.012, "dcutoff": 1.0}
 
+# ===========================================================================
+# AXIS MAP — the single source of truth, imported by teleop AND visualizer.
+# One dict per driven joint. Field reference:
+#
+#   joint         CAN joint id
+#   source        control input:  "yaw" = controller heading (deg)
+#                                  "y"   = controller height  (m)
+#   scale         joint-degrees per source-unit (deg/deg or deg/m)
+#   invert        flip mapping direction if the joint goes the wrong way
+#   kp            P-gain: motor rpm per degree of joint position error
+#   max_travel    max |target - engage angle|, degrees  (soft clamp)
+#   max_rpm       per-joint speed cap, motor rpm
+#   rpm_floor     min |rpm| once outside the deadband — a loaded joint
+#                 stalls below its break-away torque otherwise
+#   pos_deadband  |error| within this -> command 0 (no hunting)
+#   filter        One-Euro spec dict, or None for pass-through
+# ===========================================================================
 AXES = [
     {
-        "joint": 1, "source": "yaw",
-        "scale": 1.0, "invert": True,
-        "kp": 6.0, "max_travel": 45.0,
-        "rpm_floor": 8, "pos_deadband": 1.0,
-        "filter": YAW_FILTER,
+        "joint":        1,
+        "source":       "yaw",
+        "scale":        0.25,
+        "invert":       True,
+        "kp":           6.0,
+        "max_travel":   45.0,
+        "max_rpm":      80,
+        "rpm_floor":    8,
+        "pos_deadband": 1.0,
+        "filter":       YAW_FILTER,
     },
     {
-        "joint": 2, "source": "y",
-        "scale": 60.0, "invert": True,
-        "kp": 6.0, "max_travel": 30.0,
-        "rpm_floor": 45, "pos_deadband": 2.0,
-        "filter": None,
+        "joint":        2,
+        "source":       "y",
+        "scale":        240.0,
+        "invert":       True,
+        "kp":           6.0,
+        "max_travel":   1000.0,   # TEMP: clamp effectively off until tuned
+        "max_rpm":      240,      # 3x J1 cap (was the shared 80)
+        "rpm_floor":    45,
+        "pos_deadband": 2.0,
+        "filter":       None,
+    },
+    {
+        # J3 (elbow) follows controller height exactly like J2 — both
+        # move together when you raise/lower your hand.
+        "joint":        3,
+        "source":       "y",
+        "scale":        240.0,
+        "invert":       False,
+        "kp":           6.0,
+        "max_travel":   1000.0,   # TEMP: clamp effectively off until tuned
+        "max_rpm":      240,
+        "rpm_floor":    45,
+        "pos_deadband": 2.0,
+        "filter":       None,
+    },
+    {
+        # J4 (forearm roll) <- controller roll (wrist twist). Uses the
+        # same deadzone as J1 (SRC_DEADBAND["roll"] = YAW_DEADBAND_DEG).
+        "joint":        4,
+        "source":       "roll",
+        "scale":        1.0,
+        "invert":       False,
+        "kp":           6.0,
+        "max_travel":   45.0,
+        "max_rpm":      80,
+        "rpm_floor":    8,
+        "pos_deadband": 1.0,
+        "filter":       None,
     },
 ]
 
-YAW_DEADBAND_DEG = 1.0
+YAW_DEADBAND_DEG = 10.0   # +/-10° dead, then linear (deadband() is zero
+                          # inside, continues from 0 at the edge — no step)
 Y_DEADBAND_M = 0.01
-SRC_DEADBAND = {"yaw": YAW_DEADBAND_DEG, "y": Y_DEADBAND_M}
-SRC_UNIT = {"yaw": "°", "y": "m"}
+SRC_DEADBAND = {
+    "yaw": YAW_DEADBAND_DEG,
+    "y": Y_DEADBAND_M,
+    "roll": YAW_DEADBAND_DEG,   # J4: same deadzone as J1/yaw
+}
+SRC_UNIT = {"yaw": "°", "y": "m", "roll": "°"}
 # Angular sources wrap; their period (deg). None = linear (no wrap).
-SRC_WRAP = {"yaw": 360.0, "y": None}
+SRC_WRAP = {"yaw": 360.0, "y": None, "roll": 360.0}
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +206,27 @@ def controller_yaw_deg(R):
     return math.degrees(math.atan2(fwd[0], -fwd[2]))
 
 
+def controller_roll_deg(R):
+    """
+    Twist of the controller about its own pointing axis, referenced to
+    gravity (room +Y up). 0 = controller upright; +/-90 = rolled onto
+    its side; like turning a doorknob. Degenerate only when pointing
+    straight up/down (roll/yaw gimbal) — fine for a wrist twist.
+
+    Project the controller's right (R@[1,0,0]) and up (R@[0,1,0]) onto
+    world vertical: roll = atan2(right_y, up_y).
+    """
+    right = R @ np.array([1.0, 0.0, 0.0])
+    up = R @ np.array([0.0, 1.0, 0.0])
+    return math.degrees(math.atan2(right[1], up[1]))
+
+
 def read_source(name, p, R):
     """Map a controller pose to a control-source scalar."""
     if name == "yaw":
         return controller_yaw_deg(R)
+    if name == "roll":
+        return controller_roll_deg(R)
     if name == "y":
         return p[1]                       # room +Y, metres
     raise ValueError(f"unknown source {name!r}")
@@ -329,6 +409,97 @@ class ControllerSubscriber:
     def shutdown(self):
         # Bounded — the spin thread is a daemon, so never block exit on
         # it (a hung shutdown here is what locked the CAN port before).
+        try:
+            self._exec.shutdown(timeout_sec=1.0)
+        except Exception:
+            pass
+        try:
+            self._node.destroy_node()
+        except Exception:
+            pass
+        try:
+            if self._rclpy.ok():
+                self._rclpy.shutdown()
+        except Exception:
+            pass
+
+
+class HandSubscriber:
+    """
+    Subscribes to the Valve Index finger curls + trigger + grip for the
+    AmazingHand driver. Same pattern as ControllerSubscriber: background
+    rclpy spin, wall-clock staleness, claims SIGINT/SIGTERM so Ctrl+C
+    cleanly tears the hand process down.
+
+    latest() -> (curls, trigger, grip, age_s)
+      curls  : list[5] floats in FINGER_ORDER (0=open .. 1=closed),
+               or None until the first message
+      trigger: float 0..1   grip: float 0..1
+      age_s  : seconds since the most recent finger message (1e9 if none)
+    """
+
+    def __init__(self, node_name="vr_hand_consumer"):
+        import rclpy
+        from rclpy.executors import SingleThreadedExecutor
+        from std_msgs.msg import Float32, Float32MultiArray
+
+        self._rclpy = rclpy
+        ros_init_no_signals()
+        self._node = rclpy.create_node(node_name)
+        self._lock = threading.Lock()
+        self._curls = None
+        self._curls_t = 0.0
+        self._trigger = 0.0
+        self._grip = 0.0
+
+        self._node.create_subscription(
+            Float32MultiArray, TOPIC_FINGERS, self._on_fingers, 10
+        )
+        self._node.create_subscription(
+            Float32, TOPIC_TRIGGER, self._on_trigger, 10
+        )
+        self._node.create_subscription(
+            Float32, TOPIC_GRIP, self._on_grip, 10
+        )
+        self._exec = SingleThreadedExecutor()
+        self._exec.add_node(self._node)
+        self._spin = threading.Thread(
+            target=self._exec.spin, daemon=True, name="vr-hand-spin"
+        )
+        self._spin.start()
+
+        import signal
+
+        def _raise_kbint(_signo, _frame):
+            raise KeyboardInterrupt
+
+        try:
+            signal.signal(signal.SIGINT, _raise_kbint)
+            signal.signal(signal.SIGTERM, _raise_kbint)
+        except (ValueError, OSError) as e:
+            print(f"[vr_ros_io] could not claim signal handlers: {e}")
+
+    def _on_fingers(self, msg):
+        with self._lock:
+            self._curls = list(msg.data)
+            self._curls_t = time.time()
+
+    def _on_trigger(self, msg):
+        with self._lock:
+            self._trigger = float(msg.data)
+
+    def _on_grip(self, msg):
+        with self._lock:
+            self._grip = float(msg.data)
+
+    def latest(self):
+        now = time.time()
+        with self._lock:
+            age = (now - self._curls_t) if self._curls_t else 1e9
+            curls = list(self._curls) if self._curls is not None else None
+            return curls, self._trigger, self._grip, age
+
+    def shutdown(self):
         try:
             self._exec.shutdown(timeout_sec=1.0)
         except Exception:

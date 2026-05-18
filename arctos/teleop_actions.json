@@ -4,7 +4,10 @@
   ],
   "actions": [
     { "name": "/actions/arctos/in/hand_pose", "type": "pose" },
-    { "name": "/actions/arctos/in/clutch",    "type": "boolean" }
+    { "name": "/actions/arctos/in/clutch",    "type": "boolean" },
+    { "name": "/actions/arctos/in/skeleton_right", "type": "skeleton", "skeleton": "/skeleton/hand/right" },
+    { "name": "/actions/arctos/in/trigger",   "type": "vector1" },
+    { "name": "/actions/arctos/in/grip",      "type": "vector1" }
   ],
   "action_sets": [
     { "name": "/actions/arctos", "usage": "leftright" }
@@ -14,7 +17,10 @@
       "language_tag": "en_US",
       "/actions/arctos": "ARCTOS Rotation Teleop",
       "/actions/arctos/in/hand_pose": "Controller pose",
-      "/actions/arctos/in/clutch": "Clutch (hold B to engage)"
+      "/actions/arctos/in/clutch": "Clutch (hold B to engage)",
+      "/actions/arctos/in/skeleton_right": "Right hand skeleton",
+      "/actions/arctos/in/trigger": "Trigger pull",
+      "/actions/arctos/in/grip": "Grip squeeze"
     }
   ]
 }
