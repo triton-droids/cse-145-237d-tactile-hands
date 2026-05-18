@@ -256,7 +256,8 @@ def main():
                             floor = ax["rpm_floor"]
                             if abs(r) < floor:
                                 r = math.copysign(floor, r)
-                            cmd[j] = int(np.clip(r, -MAX_RPM, MAX_RPM))
+                            cap = ax.get("max_rpm", MAX_RPM)
+                            cmd[j] = int(np.clip(r, -cap, cap))
 
                 # Push commands; only hit the bus on meaningful change
                 # (always send the settling 0).
