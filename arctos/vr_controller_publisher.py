@@ -25,7 +25,13 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Bool
 
-from vr_ros_io import FRAME_ID, TOPIC_CLUTCH, TOPIC_POSE, mat_to_quat
+from vr_ros_io import (
+    FRAME_ID,
+    TOPIC_CLUTCH,
+    TOPIC_POSE,
+    mat_to_quat,
+    ros_init_no_signals,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(HERE, "teleop_actions.json")
@@ -47,7 +53,7 @@ def main():
     active[0].ulSecondaryActionSet = 0
     active[0].nPriority = 0
 
-    rclpy.init()
+    ros_init_no_signals()
     node = rclpy.create_node("vr_controller_publisher")
     pose_pub = node.create_publisher(PoseStamped, TOPIC_POSE, 10)
     clutch_pub = node.create_publisher(Bool, TOPIC_CLUTCH, 10)

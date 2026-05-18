@@ -20,6 +20,31 @@ import time
 
 import numpy as np
 
+def ros_init_no_signals():
+    """
+    rclpy.init() WITHOUT rclpy's SIGINT handler.
+
+    By default rclpy installs its own signal handlers, which swallow
+    Ctrl+C so the host program's `except KeyboardInterrupt` never runs —
+    for the teleop that means it never stops the arm or frees the CAN
+    port on exit. The host must own SIGINT, so disable rclpy's handlers.
+    Safe to call if already initialized.
+    """
+    import rclpy
+
+    if rclpy.ok():
+        return
+    try:
+        from rclpy.signals import SignalHandlerOptions
+        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    except (ImportError, TypeError):
+        # Very old rclpy without the option — fall back and re-assert
+        # the default Python SIGINT handler afterwards.
+        import signal
+        rclpy.init()
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+
+
 TOPIC_POSE = "/vr/right_controller/pose"
 TOPIC_CLUTCH = "/vr/clutch"
 FRAME_ID = "vr_room"           # SteamVR standing room frame (OpenGL axes)
@@ -142,8 +167,7 @@ class ControllerSubscriber:
         from std_msgs.msg import Bool
 
         self._rclpy = rclpy
-        if not rclpy.ok():
-            rclpy.init()
+        ros_init_no_signals()
         self._node = rclpy.create_node(node_name)
         self._lock = threading.Lock()
         self._p = None
@@ -164,6 +188,23 @@ class ControllerSubscriber:
             target=self._exec.spin, daemon=True, name="vr-ros-spin"
         )
         self._spin.start()
+
+        # rclpy's SignalHandlerOptions.NO is not enough — the DDS layer
+        # still installs a SIGINT handler that swallows Ctrl+C, so the
+        # host's finally (stop arm, free CAN port) never runs. Re-claim
+        # SIGINT/SIGTERM *after* everything below us is up so ours wins;
+        # both raise KeyboardInterrupt into the main thread. Must be
+        # called from the main thread (it is: consumers build this there).
+        import signal
+
+        def _raise_kbint(_signo, _frame):
+            raise KeyboardInterrupt
+
+        try:
+            signal.signal(signal.SIGINT, _raise_kbint)
+            signal.signal(signal.SIGTERM, _raise_kbint)
+        except (ValueError, OSError) as e:
+            print(f"[vr_ros_io] could not claim signal handlers: {e}")
 
     def _on_pose(self, msg):
         q = msg.pose.orientation
@@ -196,8 +237,10 @@ class ControllerSubscriber:
             return self._p, self._R, pose_age, self._clutch, clutch_age
 
     def shutdown(self):
+        # Bounded — the spin thread is a daemon, so never block exit on
+        # it (a hung shutdown here is what locked the CAN port before).
         try:
-            self._exec.shutdown()
+            self._exec.shutdown(timeout_sec=1.0)
         except Exception:
             pass
         try:

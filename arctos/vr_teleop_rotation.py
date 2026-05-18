@@ -108,6 +108,10 @@ class EncoderPoller:
 
 
 def main():
+    # SIGINT/SIGTERM -> KeyboardInterrupt is claimed by
+    # ControllerSubscriber (after rclpy+DDS init, so it wins). On either
+    # signal the finally-block runs: stop joints, disconnect, free the
+    # CAN port. This is what makes Ctrl+C / launcher teardown reliable.
     joints = [ax["joint"] for ax in AXES]
     period = 1.0 / LOOP_HZ
 
