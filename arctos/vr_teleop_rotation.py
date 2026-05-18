@@ -1,26 +1,37 @@
 """
 VR rotation teleop for the ARCTOS arm — J1 base yaw only.
 
-Safest possible first-light teleop: ONE joint, VELOCITY control, deadman
-clutch. Hold the right Index controller's B button to engage; the
-controller's yaw (heading) offset from the moment you pressed B drives
-the base joint's *speed*. Release B and the joint decelerates to a stop.
+POSITION teleop with a deadman clutch. Hold the right Index controller's
+B button to engage; the controller's yaw (heading) offset from the moment
+you pressed B maps 1:1 (scaled by SCALE) to a J1 *target angle*. The arm
+servos to that angle and holds it. Twist back, it follows back. Release B
+and it stops where it is.
+
+How it actually drives the motor:
+  The MKS firmware primitive we trust on hardware is speed mode (0xF6).
+  So position control is a software P-loop: each tick we read the joint
+  encoder, compute error = target - current, and command a proportional
+  joint speed (rpm = KP * error, capped). At the target, error -> 0 ->
+  speed 0 -> it holds. No absolute-move (0xFE) firmware command needed.
 
 Mapping:
-  * On B press  -> capture reference yaw. No motion yet.
-  * While held  -> rpm = GAIN * (yaw_now - yaw_ref), deadbanded + capped.
-                   Turn the controller right, the base rotates one way;
-                   turn left, the other. Hold it still -> arm holds still.
-  * On B release-> speed 0 (graceful decel). Re-press re-zeros the
-                   reference, so there is never a jump on re-engage.
+  * On B press  -> capture reference yaw AND reference joint angle
+                   (a fresh encoder read). No motion yet.
+  * While held  -> target = joint_ref + DIR * SCALE * (yaw - yaw_ref),
+                   clamped to +/- MAX_TRAVEL_DEG of joint_ref.
+                   rpm = clip(KP * (target - encoder), +/- MAX_RPM).
+  * On B release-> speed 0. Re-press recaptures both references, so
+                   there is never a jump on re-engage.
 
-Safety nets (first light):
+Safety nets:
   * Deadman: zero motion unless B is physically held.
-  * MAX_RPM cap keeps joint speed gentle.
-  * Open-loop travel estimate: if the integrated commanded motion exceeds
-    MAX_TRAVEL_DEG from the engage point, motion is locked out until you
-    release and re-press B. This is an ESTIMATE (no encoder feedback in
-    the loop) — keep clear of cable-wrap range and keep a hand on E-stop.
+  * Closed-loop on the encoder: position is measured, not integrated.
+  * Encoder feedback REQUIRED — if samples go stale (no fresh reading
+    within ENC_STALE_S) the loop commands speed 0 rather than drive
+    blind, and warns.
+  * Target is clamped to +/- MAX_TRAVEL_DEG from the engage point. A
+    further hard runaway guard (encoder drifts past the clamp + margin)
+    locks out until you release and re-press B.
   * Any exit path (release, Ctrl+C, exception) stops J1, then
     disconnect() emergency-stops every joint.
 
@@ -48,30 +59,34 @@ MANIFEST = os.path.join(HERE, "teleop_actions.json")
 # --- Which joint --------------------------------------------------------
 JOINT = 1                 # J1 base yaw
 
-# --- Mapping / feel -----------------------------------------------------
-GAIN = 4.0                # motor RPM per degree of controller yaw offset
-DEADBAND_DEG = 4.0        # ignore yaw offsets smaller than this (hand jitter)
+# --- Position mapping ---------------------------------------------------
+SCALE = 1.0               # joint degrees per controller-yaw degree (1:1)
+INVERT = True             # flip which way controller twist maps to J1
+YAW_DEADBAND_DEG = 1.0    # ignore controller yaw within this of the ref
+
+# --- Position P-loop ----------------------------------------------------
+KP = 6.0                  # motor RPM per degree of joint position error
+POS_DEADBAND_DEG = 1.0    # within this of target -> command 0 (no hunting)
 MAX_RPM = 80              # motor-RPM cap (J1 gear 24.6 -> ~19 deg/s at joint)
 ACC = 5                   # speed-mode accel/decel rate (firmware units)
-INVERT = True             # flip if the arm rotates opposite the controller
 
 # --- Safety -------------------------------------------------------------
-MAX_TRAVEL_DEG = 45.0     # joint travel from engage before lockout
+MAX_TRAVEL_DEG = 45.0     # max target offset from the engage point
+RUNAWAY_MARGIN_DEG = 10.0 # encoder past clamp + this -> hard lockout
 SEND_RPM_STEP = 3         # only resend speed when it changes by >= this
 LOOP_HZ = 50.0
-ENC_POLL_S = 0.3          # how often the background thread reads the encoder
-ENC_STALE_S = 1.5         # warn if no fresh encoder sample for this long
+ENC_POLL_S = 0.08         # background encoder poll period (closed-loop rate)
+ENC_STALE_S = 0.4         # no fresh sample within this -> command 0
 
 
 def mat_from_openvr34(m34):
-    R = np.array(
+    return np.array(
         [
             [m34.m[0][0], m34.m[0][1], m34.m[0][2]],
             [m34.m[1][0], m34.m[1][1], m34.m[1][2]],
             [m34.m[2][0], m34.m[2][1], m34.m[2][2]],
         ]
     )
-    return R
 
 
 def controller_yaw_deg(R):
@@ -90,9 +105,9 @@ class EncoderPoller:
     """
     Reads one joint's built-in MKS encoder on a background thread.
 
-    read_encoder() blocks up to ~1 s on the CAN response, which would
-    stall the 50 Hz teleop loop. So we poll it here every ENC_POLL_S and
-    publish the latest (angle, stamp) for the loop to sample lock-free-ish.
+    read_encoder() blocks on the CAN response, which would stall the
+    50 Hz teleop loop. We poll it here every ENC_POLL_S and publish the
+    latest (angle, stamp) for the loop's position feedback.
     """
 
     def __init__(self, arm, joint):
@@ -145,31 +160,27 @@ def main():
     active[0].ulSecondaryActionSet = 0
     active[0].nPriority = 0
 
-    gear = ArctosArm.GEAR_RATIOS[JOINT]
+    direction = -1.0 if INVERT else 1.0
     period = 1.0 / LOOP_HZ
 
     print("[teleop] connecting to ARCTOS…")
     with ArctosArm() as arm:
         enc = EncoderPoller(arm, JOINT)
         enc.start()
-        print(f"[teleop] J{JOINT} ready. HOLD right-controller B to drive, "
-              f"release to stop. Ctrl+C to quit.")
+        print(f"[teleop] J{JOINT} ready (POSITION mode). HOLD right-controller "
+              f"B to drive, release to stop. Ctrl+C to quit.")
 
-        engaged = False           # B currently held AND not locked out
+        engaged = False           # B held AND not locked out
         prev_clutch = False       # B state last tick (edge detect)
-        locked_out = False        # travel-limit tripped; needs B re-press
-        yaw_ref = 0.0             # controller yaw captured at engage
-        enc_ref = None            # encoder angle at engage (None = no sample)
-        last_enc_stamp = 0.0      # stamp of last encoder sample consumed
-        est_since_sample = 0.0    # open-loop joint deg since that sample
-        stale_warned = False      # so the stale-encoder warning fires once
+        locked_out = False        # runaway guard tripped; needs B re-press
+        yaw_ref = 0.0             # controller yaw at engage
+        joint_ref = 0.0           # joint angle at engage (absolute base)
         last_sent_rpm = None      # so we only resend on meaningful change
         last_t = time.time()
 
         try:
             while True:
                 now = time.time()
-                dt = now - last_t
                 last_t = now
 
                 vri.updateActionState(active)
@@ -200,20 +211,23 @@ def main():
                 prev_clutch = clutch
 
                 enc_angle, enc_stamp = enc.latest()
+                enc_fresh = (
+                    enc_angle is not None
+                    and (now - enc_stamp) <= ENC_STALE_S
+                )
 
                 if rising and pose_ok:
-                    yaw_ref = yaw
-                    enc_ref = enc_angle           # may be None if no sample yet
-                    last_enc_stamp = enc_stamp
-                    est_since_sample = 0.0
-                    locked_out = False
-                    stale_warned = False
-                    engaged = True
-                    ref_str = (
-                        f"{enc_ref:+.1f}°" if enc_ref is not None else "n/a"
-                    )
-                    print(f"[teleop] CLUTCH IN  ref_yaw={yaw_ref:+.1f}° "
-                          f"enc_ref={ref_str}")
+                    # Position mode needs a trustworthy absolute base.
+                    if enc_fresh:
+                        yaw_ref = yaw
+                        joint_ref = enc_angle
+                        locked_out = False
+                        engaged = True
+                        print(f"[teleop] CLUTCH IN  yaw_ref={yaw_ref:+.1f}° "
+                              f"joint_ref={joint_ref:+.1f}°")
+                    else:
+                        print("[teleop] CLUTCH IN ignored — no fresh "
+                              "encoder yet, cannot anchor position")
 
                 if falling and engaged:
                     engaged = False
@@ -221,48 +235,58 @@ def main():
                     last_sent_rpm = 0
                     print("[teleop] CLUTCH OUT — stopping")
 
-                # Decide commanded RPM for this tick.
+                # --- Position P-loop ---------------------------------
                 rpm = 0
-                if engaged and not locked_out and pose_ok:
-                    err = yaw - yaw_ref
-                    if abs(err) <= DEADBAND_DEG:
-                        rpm = 0
+                if engaged and not locked_out:
+                    if not pose_ok or yaw is None:
+                        rpm = 0                       # no command source
+                    elif not enc_fresh:
+                        rpm = 0                       # never drive blind
+                        print("[teleop] WARNING: encoder stale — holding")
                     else:
-                        adj = err - math.copysign(DEADBAND_DEG, err)
-                        rpm = int(np.clip(GAIN * adj, -MAX_RPM, MAX_RPM))
-                        if INVERT:
-                            rpm = -rpm
+                        # Controller yaw offset -> joint target.
+                        d_yaw = yaw - yaw_ref
+                        if abs(d_yaw) <= YAW_DEADBAND_DEG:
+                            d_yaw = 0.0
+                        else:
+                            d_yaw -= math.copysign(YAW_DEADBAND_DEG, d_yaw)
 
-                    # Travel since engage. Encoder is authoritative; the
-                    # open-loop term (joint deg/s = rpm*6/gear) only fills
-                    # the gap between the ~ENC_POLL_S encoder samples.
-                    est_since_sample += (rpm * 6.0 / gear) * dt
-                    if enc_ref is not None and enc_angle is not None:
-                        if enc_stamp != last_enc_stamp:
-                            last_enc_stamp = enc_stamp   # fresh sample…
-                            est_since_sample = 0.0       # …encoder now exact
-                            stale_warned = False
-                        elif (
-                            not stale_warned
-                            and now - last_enc_stamp > ENC_STALE_S
+                        target = joint_ref + direction * SCALE * d_yaw
+                        target = float(np.clip(
+                            target,
+                            joint_ref - MAX_TRAVEL_DEG,
+                            joint_ref + MAX_TRAVEL_DEG,
+                        ))
+
+                        # Hard runaway guard: measured angle ran well past
+                        # the allowed band -> stop and require re-clutch.
+                        if abs(enc_angle - joint_ref) > (
+                            MAX_TRAVEL_DEG + RUNAWAY_MARGIN_DEG
                         ):
-                            print("[teleop] WARNING: encoder stale, "
-                                  "limit running open-loop")
-                            stale_warned = True
-                        travel = (enc_angle - enc_ref) + est_since_sample
-                    else:
-                        travel = est_since_sample        # no encoder yet
+                            rpm = 0
+                            locked_out = True
+                            engaged = False
+                            print(f"[teleop] RUNAWAY GUARD "
+                                  f"(enc {enc_angle:+.0f}° vs "
+                                  f"ref {joint_ref:+.0f}°) — release & "
+                                  f"re-press B")
+                        else:
+                            # +rpm increases the encoder angle (verified on
+                            # hardware), so drive straight off the error.
+                            err = target - enc_angle
+                            if abs(err) <= POS_DEADBAND_DEG:
+                                rpm = 0
+                            else:
+                                rpm = int(np.clip(
+                                    KP * err, -MAX_RPM, MAX_RPM
+                                ))
 
-                    if abs(travel) > MAX_TRAVEL_DEG:
-                        rpm = 0
-                        locked_out = True
-                        engaged = False
-                        print(f"[teleop] TRAVEL LIMIT ({travel:+.0f}°) "
-                              f"— release & re-press B to continue")
-
-                # Only hit the bus when the command meaningfully changes.
-                if last_sent_rpm is None or abs(rpm - last_sent_rpm) >= SEND_RPM_STEP or (
-                    rpm == 0 and last_sent_rpm != 0
+                # Only hit the bus when the command meaningfully changes
+                # (always send the settling 0).
+                if (
+                    last_sent_rpm is None
+                    or abs(rpm - last_sent_rpm) >= SEND_RPM_STEP
+                    or (rpm == 0 and last_sent_rpm != 0)
                 ):
                     arm.set_joint_speed(JOINT, rpm, ACC, wait=False)
                     last_sent_rpm = rpm
@@ -272,7 +296,7 @@ def main():
                     time.sleep(sleep)
 
         except KeyboardInterrupt:
-            print("\n[teleop] Ctrl+C — stopping J{}".format(JOINT))
+            print(f"\n[teleop] Ctrl+C — stopping J{JOINT}")
         finally:
             enc.stop()
             try:
