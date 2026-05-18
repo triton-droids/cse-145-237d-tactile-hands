@@ -47,6 +47,27 @@ def ros_init_no_signals():
         signal.signal(signal.SIGINT, signal.default_int_handler)
 
 
+def disarm_term_signals():
+    """
+    Make the exit path uninterruptible. Our SIGINT/SIGTERM handler
+    raises KeyboardInterrupt; the FIRST one breaks the main loop, but a
+    SECOND arriving during cleanup (a re-press, or the launcher's SIGINT
+    then SIGKILL) re-raises through the finally — KeyboardInterrupt is
+    BaseException, not Exception, so it sails past `except Exception` and
+    can skip stopping the arm / freeing the port. Call this as the FIRST
+    line of every cleanup/finally so teardown completes atomically. The
+    launcher's SIGKILL fallback is still the ultimate backstop.
+    Main-thread only; best-effort.
+    """
+    import signal
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, signal.SIG_IGN)
+        except (ValueError, OSError):
+            pass
+
+
 TOPIC_POSE = "/vr/right_controller/pose"
 TOPIC_CLUTCH = "/vr/clutch"
 FRAME_ID = "vr_room"           # SteamVR standing room frame (OpenGL axes)
@@ -473,6 +494,7 @@ class ControllerSubscriber:
     def shutdown(self):
         # Bounded — the spin thread is a daemon, so never block exit on
         # it (a hung shutdown here is what locked the CAN port before).
+        disarm_term_signals()
         try:
             self._exec.shutdown(timeout_sec=1.0)
         except Exception:
@@ -564,6 +586,7 @@ class HandSubscriber:
             return curls, self._trigger, self._grip, age
 
     def shutdown(self):
+        disarm_term_signals()
         try:
             self._exec.shutdown(timeout_sec=1.0)
         except Exception:

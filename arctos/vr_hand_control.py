@@ -30,7 +30,7 @@ import time
 
 import numpy as np
 
-from vr_ros_io import FINGER_ORDER, HandSubscriber
+from vr_ros_io import FINGER_ORDER, HandSubscriber, disarm_term_signals
 
 SERIAL_PORT = "/dev/ttyACM1"      # the QinHeng 1A86 servo bus (not the CAN)
 BAUD = 1_000_000
@@ -155,6 +155,8 @@ def main():
     except KeyboardInterrupt:
         print("\n[hand] Ctrl+C")
     finally:
+        # Atomic teardown: a 2nd signal must not skip open + torque-off.
+        disarm_term_signals()
         if args.live and c is not None:
             try:
                 for i, g in servo_goals([0.0] * 5).items():

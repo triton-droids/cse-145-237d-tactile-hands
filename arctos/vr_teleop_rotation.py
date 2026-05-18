@@ -47,6 +47,7 @@ from vr_ros_io import (
     ControllerSubscriber,
     SourceFilter,
     deadband,
+    disarm_term_signals,
     read_source,
     source_offset,
 )
@@ -280,6 +281,9 @@ def main():
         except KeyboardInterrupt:
             print(f"\n[teleop] Ctrl+C — stopping joints {joints}")
         finally:
+            # Make teardown atomic: a 2nd signal here must NOT skip
+            # arm-stop / port-free (launcher SIGKILL is the backstop).
+            disarm_term_signals()
             enc.stop()
             for ax in AXES:
                 try:

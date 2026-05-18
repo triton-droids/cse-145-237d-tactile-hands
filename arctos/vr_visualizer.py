@@ -37,6 +37,7 @@ from vr_ros_io import (
     SRC_UNIT,
     ControllerSubscriber,
     deadband,
+    disarm_term_signals,
     read_source,
     source_offset,
 )
@@ -291,6 +292,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[viz] bye")
     finally:
+        disarm_term_signals()
         vr.shutdown()
 
 
