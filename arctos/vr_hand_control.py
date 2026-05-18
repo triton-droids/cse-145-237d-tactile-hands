@@ -35,11 +35,12 @@ from vr_ros_io import FINGER_ORDER, HandSubscriber
 SERIAL_PORT = "/dev/ttyACM1"      # the QinHeng 1A86 servo bus (not the CAN)
 BAUD = 1_000_000
 
-# !!! CALIBRATION — per-servo neutral offsets, degrees, indexed by
-# (servo_id - 1). The shipped value is the AmazingHand_Demo PLACEHOLDER.
-# Replace with THIS hand's calibration before using --live.
-HAND_MIDDLE_POS = [3, 0, -5, -8, -2, 5, -12, 0]
-HAND_CALIBRATED = False           # set True once HAND_MIDDLE_POS is real
+# CALIBRATION — per-servo neutral offsets, degrees, indexed by
+# (servo_id - 1). Taken from this project's hand_control/angle_control.py
+# (same MiddlePos[ID-1]+angle formula and servo-id pairs as here), i.e.
+# this physical hand's calibration.
+HAND_MIDDLE_POS = [1.4, 19.6, 12.6, -7.9, 13.9, 10.5, 17, -28.1]
+HAND_CALIBRATED = True            # from hand_control/angle_control.py
 
 # Finger -> (servo_id_1, servo_id_2). Curl drives them differentially,
 # exactly like AmazingHand_Demo's Move_* (open -35/+35, close +90/-90).
