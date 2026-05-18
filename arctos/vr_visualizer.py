@@ -38,6 +38,7 @@ from vr_ros_io import (
     ControllerSubscriber,
     deadband,
     read_source,
+    source_offset,
 )
 
 TRAIL_LEN = 240
@@ -53,7 +54,10 @@ def axis_targets(p, R, src_ref):
         if src_ref is None or j not in src_ref:
             out[j] = (src, None, None)
             continue
-        d = deadband(src - src_ref[j], SRC_DEADBAND[ax["source"]])
+        d = deadband(
+            source_offset(ax["source"], src, src_ref[j]),
+            SRC_DEADBAND[ax["source"]],
+        )
         sign = -1.0 if ax["invert"] else 1.0
         out[j] = (src, d, sign * ax["scale"] * d)
     return out

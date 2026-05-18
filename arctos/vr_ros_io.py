@@ -75,6 +75,8 @@ YAW_DEADBAND_DEG = 1.0
 Y_DEADBAND_M = 0.01
 SRC_DEADBAND = {"yaw": YAW_DEADBAND_DEG, "y": Y_DEADBAND_M}
 SRC_UNIT = {"yaw": "°", "y": "m"}
+# Angular sources wrap; their period (deg). None = linear (no wrap).
+SRC_WRAP = {"yaw": 360.0, "y": None}
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +142,19 @@ def read_source(name, p, R):
     if name == "y":
         return p[1]                       # room +Y, metres
     raise ValueError(f"unknown source {name!r}")
+
+
+def source_offset(name, value, ref):
+    """
+    value - ref, but for angular sources (yaw) take the SHORTEST signed
+    difference so crossing the atan2 +/-180 boundary doesn't produce a
+    ~360 jump (which the P-loop would turn into a joint slam).
+    """
+    off = value - ref
+    period = SRC_WRAP.get(name)
+    if period is not None:
+        off = (off + period / 2.0) % period - period / 2.0
+    return off
 
 
 def deadband(value, width):

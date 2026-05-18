@@ -47,6 +47,7 @@ from vr_ros_io import (
     ControllerSubscriber,
     deadband,
     read_source,
+    source_offset,
 )
 
 # --- Position P-loop (shared cap) --------------------------------------
@@ -203,7 +204,11 @@ def main():
                             continue
 
                         d_src = deadband(
-                            read_source(ax["source"], p, R) - src_ref[j],
+                            source_offset(
+                                ax["source"],
+                                read_source(ax["source"], p, R),
+                                src_ref[j],
+                            ),
                             SRC_DEADBAND[ax["source"]],
                         )
                         d = -1.0 if ax["invert"] else 1.0
