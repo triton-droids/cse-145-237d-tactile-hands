@@ -14,7 +14,9 @@ This module has NO openvr and NO python-can dependency on purpose, so
 the visualizer can import it without arm libraries.
 """
 
+import json
 import math
+import os
 import threading
 import time
 
@@ -139,11 +141,13 @@ AXES = [
 
 YAW_DEADBAND_DEG = 10.0   # +/-10° dead, then linear (deadband() is zero
                           # inside, continues from 0 at the edge — no step)
+ROLL_DEADBAND_DEG = 25.0  # J4 wrist-twist triggers accidentally during
+                          # normal motion; wide dead zone, then linear
 Y_DEADBAND_M = 0.01
 SRC_DEADBAND = {
     "yaw": YAW_DEADBAND_DEG,
     "y": Y_DEADBAND_M,
-    "roll": YAW_DEADBAND_DEG,   # J4: same deadzone as J1/yaw
+    "roll": ROLL_DEADBAND_DEG,
 }
 SRC_UNIT = {"yaw": "°", "y": "m", "roll": "°"}
 # Angular sources wrap; their period (deg). None = linear (no wrap).
@@ -219,6 +223,57 @@ def controller_roll_deg(R):
     right = R @ np.array([1.0, 0.0, 0.0])
     up = R @ np.array([0.0, 1.0, 0.0])
     return math.degrees(math.atan2(right[1], up[1]))
+
+
+# ---------------------------------------------------------------------------
+# 6-DOF frame calibration (Beat-Saber style). Capture a neutral pose with
+# the controller aligned to your forearm; every later pose is re-expressed
+# in that frame so yaw/pitch/roll/XYZ decouple and match your hand.
+#   p_aligned = R_cal^T (p - p_cal)      R_aligned = R_cal^T R
+# Identity calibration (R=I, p=0) is a no-op, so the system works
+# unchanged until a calibration is captured.
+# ---------------------------------------------------------------------------
+CALIB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "vr_calibration.json")
+
+
+def average_rotations(mats):
+    """Chordal-L2 mean of rotation matrices via SVD (robust for the
+    small spread of a held-still capture)."""
+    M = np.sum(mats, axis=0)
+    U, _, Vt = np.linalg.svd(M)
+    R = U @ Vt
+    if np.linalg.det(R) < 0:            # reflect -> proper rotation
+        U[:, -1] *= -1
+        R = U @ Vt
+    return R
+
+
+def load_calibration(path=CALIB_PATH):
+    """Return (R_cal 3x3, p_cal 3). Identity/zero if no/invalid file."""
+    try:
+        with open(path) as f:
+            d = json.load(f)
+        R = np.array(d["R_cal"], dtype=float).reshape(3, 3)
+        p = np.array(d["p_cal"], dtype=float).reshape(3)
+        return R, p
+    except (OSError, ValueError, KeyError):
+        return np.eye(3), np.zeros(3)
+
+
+def save_calibration(R_cal, p_cal, path=CALIB_PATH):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"R_cal": np.asarray(R_cal).reshape(3, 3).tolist(),
+                   "p_cal": np.asarray(p_cal).reshape(3).tolist()}, f,
+                  indent=2)
+    os.replace(tmp, path)               # atomic
+
+
+def apply_calibration(p, R, R_cal, p_cal):
+    """Re-express a room-frame pose in the calibrated neutral frame."""
+    Rt = R_cal.T
+    return Rt @ (p - p_cal), Rt @ R
 
 
 def read_source(name, p, R):

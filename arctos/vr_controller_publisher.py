@@ -32,9 +32,15 @@ from vr_ros_io import (
     TOPIC_GRIP,
     TOPIC_POSE,
     TOPIC_TRIGGER,
+    apply_calibration,
+    average_rotations,
+    load_calibration,
     mat_to_quat,
     ros_init_no_signals,
+    save_calibration,
 )
+
+CAL_SECONDS = 1.0   # how long to average the pose while A is held
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(HERE, "teleop_actions.json")
@@ -48,6 +54,7 @@ def main():
     vri.setActionManifestPath(MANIFEST)
     a_pose = vri.getActionHandle("/actions/arctos/in/hand_pose")
     a_clutch = vri.getActionHandle("/actions/arctos/in/clutch")
+    a_cal = vri.getActionHandle("/actions/arctos/in/calibrate")
     a_skel = vri.getActionHandle("/actions/arctos/in/skeleton_right")
     a_trigger = vri.getActionHandle("/actions/arctos/in/trigger")
     a_grip = vri.getActionHandle("/actions/arctos/in/grip")
@@ -69,6 +76,18 @@ def main():
     print(f"[pub] publishing pose/clutch + {TOPIC_FINGERS}/"
           f"{TOPIC_TRIGGER}/{TOPIC_GRIP} at ~{PUBLISH_HZ:.0f} Hz. "
           f"Ctrl+C to quit.")
+
+    R_cal, p_cal = load_calibration()
+    if np.allclose(R_cal, np.eye(3)) and np.allclose(p_cal, 0):
+        print("[pub] no calibration — publishing raw room frame. "
+              "Hold A (controller aligned to forearm) to calibrate.")
+    else:
+        print("[pub] loaded saved 6-DOF calibration.")
+    cal_pressed_prev = False
+    cal_capturing = False
+    cal_t0 = 0.0
+    cal_R = []
+    cal_p = []
 
     period = 1.0 / PUBLISH_HZ
     n = 0
@@ -119,6 +138,9 @@ def main():
                 0.0,
                 openvr.k_ulInvalidInputValueHandle,
             )
+            cal_pressed = bool(vri.getDigitalActionData(
+                a_cal, openvr.k_ulInvalidInputValueHandle).bState)
+
             if pd.pose.bPoseIsValid:
                 m = pd.pose.mDeviceToAbsoluteTracking
                 p = np.array([m.m[0][3], m.m[1][3], m.m[2][3]])
@@ -127,19 +149,44 @@ def main():
                     [m.m[1][0], m.m[1][1], m.m[1][2]],
                     [m.m[2][0], m.m[2][1], m.m[2][2]],
                 ])
-                w, x, y, z = mat_to_quat(R)
+
+                # --- 6-DOF calibration capture (A held ~CAL_SECONDS) ---
+                if cal_pressed and not cal_pressed_prev:
+                    cal_capturing = True
+                    cal_t0 = time.time()
+                    cal_R = []
+                    cal_p = []
+                    print("[pub] CALIBRATING — hold the pose still…")
+                if cal_capturing:
+                    cal_R.append(R)
+                    cal_p.append(p)
+                    if time.time() - cal_t0 >= CAL_SECONDS:
+                        R_cal = average_rotations(cal_R)
+                        p_cal = np.mean(cal_p, axis=0)
+                        save_calibration(R_cal, p_cal)
+                        cal_capturing = False
+                        print(f"[pub] CALIBRATED from {len(cal_R)} samples "
+                              f"-> saved. Neutral pose is now origin.")
+                cal_pressed_prev = cal_pressed
+
+                # Publish the pose re-expressed in the calibrated frame
+                # (identity calibration = unchanged room frame).
+                pa, Ra = apply_calibration(p, R, R_cal, p_cal)
+                w, x, y, z = mat_to_quat(Ra)
 
                 pmsg = PoseStamped()
                 pmsg.header.stamp = node.get_clock().now().to_msg()
                 pmsg.header.frame_id = FRAME_ID
-                pmsg.pose.position.x = float(p[0])
-                pmsg.pose.position.y = float(p[1])
-                pmsg.pose.position.z = float(p[2])
+                pmsg.pose.position.x = float(pa[0])
+                pmsg.pose.position.y = float(pa[1])
+                pmsg.pose.position.z = float(pa[2])
                 pmsg.pose.orientation.w = float(w)
                 pmsg.pose.orientation.x = float(x)
                 pmsg.pose.orientation.y = float(y)
                 pmsg.pose.orientation.z = float(z)
                 pose_pub.publish(pmsg)
+            else:
+                cal_pressed_prev = cal_pressed
 
             n += 1
             if n % int(PUBLISH_HZ * 3) == 0:

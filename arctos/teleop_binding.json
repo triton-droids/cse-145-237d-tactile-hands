@@ -8,6 +8,11 @@
           "inputs": { "click": { "output": "/actions/arctos/in/clutch" } }
         },
         {
+          "path": "/user/hand/right/input/a",
+          "mode": "button",
+          "inputs": { "click": { "output": "/actions/arctos/in/calibrate" } }
+        },
+        {
           "path": "/user/hand/right/input/trigger",
           "mode": "trigger",
           "inputs": { "pull": { "output": "/actions/arctos/in/trigger" } }
