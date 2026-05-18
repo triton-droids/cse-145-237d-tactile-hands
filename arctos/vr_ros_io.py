@@ -56,18 +56,26 @@ FRAME_ID = "vr_room"           # SteamVR standing room frame (OpenGL axes)
 #   rpm_floor     -> min |rpm| outside deadband (loaded joints stall below
 #                    break-away torque); pos_deadband -> |err| to command 0
 # ---------------------------------------------------------------------------
+# One-Euro filter spec for a noisy source. Lower mincutoff = smoother
+# but laggier at low speed; higher beta = less lag when moving fast.
+# Yaw tracking has a few degrees of jitter, so filter it; height is
+# steadier and a position source, left unfiltered (filter=None).
+YAW_FILTER = {"mincutoff": 1.2, "beta": 0.012, "dcutoff": 1.0}
+
 AXES = [
     {
         "joint": 1, "source": "yaw",
         "scale": 1.0, "invert": True,
         "kp": 6.0, "max_travel": 45.0,
         "rpm_floor": 8, "pos_deadband": 1.0,
+        "filter": YAW_FILTER,
     },
     {
         "joint": 2, "source": "y",
         "scale": 60.0, "invert": True,
         "kp": 6.0, "max_travel": 30.0,
         "rpm_floor": 45, "pos_deadband": 2.0,
+        "filter": None,
     },
 ]
 
@@ -162,6 +170,73 @@ def deadband(value, width):
     if abs(value) <= width:
         return 0.0
     return value - math.copysign(width, value)
+
+
+# ---------------------------------------------------------------------------
+# One-Euro filter (Casiez et al.) — low jitter at rest, low lag when moving.
+# ---------------------------------------------------------------------------
+class _LowPass:
+    def __init__(self):
+        self.y = None
+
+    def filter(self, x, alpha):
+        self.y = x if self.y is None else alpha * x + (1 - alpha) * self.y
+        return self.y
+
+
+class OneEuroFilter:
+    def __init__(self, mincutoff=1.0, beta=0.0, dcutoff=1.0):
+        self.mincutoff = mincutoff
+        self.beta = beta
+        self.dcutoff = dcutoff
+        self._x = _LowPass()
+        self._dx = _LowPass()
+        self._t = None
+        self._xprev = None
+
+    @staticmethod
+    def _alpha(cutoff, dt):
+        tau = 1.0 / (2.0 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def update(self, x, t):
+        dt = 1e-2 if (self._t is None or t <= self._t) else (t - self._t)
+        self._t = t
+        dx = 0.0 if self._xprev is None else (x - self._xprev) / dt
+        self._xprev = x
+        edx = self._dx.filter(dx, self._alpha(self.dcutoff, dt))
+        cutoff = self.mincutoff + self.beta * abs(edx)
+        return self._x.filter(x, self._alpha(cutoff, dt))
+
+
+class SourceFilter:
+    """
+    Per-axis One-Euro wrapper. For angular sources (yaw) it filters a
+    continuous *unwrapped* signal so the +/-180 seam never enters the
+    filter; the returned value stays continuous and source_offset()
+    handles wrapping against the (also-filtered) reference. spec=None
+    is a pass-through.
+    """
+
+    def __init__(self, name, spec):
+        self.period = SRC_WRAP.get(name)
+        self._f = OneEuroFilter(**spec) if spec else None
+        self._unwrapped = None
+        self._prev_raw = None
+
+    def update(self, raw, t):
+        if self._f is None:
+            return raw
+        if self.period is None:
+            return self._f.update(raw, t)
+        if self._unwrapped is None:
+            self._unwrapped = raw
+        else:
+            half = self.period / 2.0
+            d = (raw - self._prev_raw + half) % self.period - half
+            self._unwrapped += d
+        self._prev_raw = raw
+        return self._f.update(self._unwrapped, t)
 
 
 # ---------------------------------------------------------------------------

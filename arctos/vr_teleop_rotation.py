@@ -45,6 +45,7 @@ from vr_ros_io import (
     AXES,
     SRC_DEADBAND,
     ControllerSubscriber,
+    SourceFilter,
     deadband,
     read_source,
     source_offset,
@@ -126,10 +127,13 @@ def main():
         print(f"[teleop] joints {joints} ready (POSITION mode via ROS). "
               f"HOLD B to drive, release to stop. Ctrl+C to quit.")
 
+        filters = {ax["joint"]: SourceFilter(ax["source"], ax.get("filter"))
+                   for ax in AXES}
+
         engaged = False           # B held AND not locked out
         prev_clutch = False       # B state last tick (edge detect)
         locked_out = False        # runaway guard tripped; needs B re-press
-        src_ref = {}              # source value per axis at engage
+        src_ref = {}              # filtered source value per axis at engage
         joint_ref = {}            # encoder angle per joint at engage
         last_sent = {ax["joint"]: None for ax in AXES}
 
@@ -163,11 +167,23 @@ def main():
                         a_ang is not None and (now - a_stp) <= ENC_STALE_S
                     )
 
+                # Filtered source per axis. Updated every tick (even when
+                # not engaged) so the filter is warm at clutch-in; both
+                # the reference and the live value use the filtered
+                # signal, so there is no engage step.
+                src_val = {}
+                if vr_ok:
+                    for ax in AXES:
+                        j = ax["joint"]
+                        src_val[j] = filters[j].update(
+                            read_source(ax["source"], p, R), now
+                        )
+
                 if rising and vr_ok:
                     if all(enc_fresh[ax["joint"]] for ax in AXES):
                         for ax in AXES:
                             j = ax["joint"]
-                            src_ref[j] = read_source(ax["source"], p, R)
+                            src_ref[j] = src_val[j]
                             joint_ref[j] = enc_now[j]
                         locked_out = False
                         engaged = True
@@ -205,9 +221,7 @@ def main():
 
                         d_src = deadband(
                             source_offset(
-                                ax["source"],
-                                read_source(ax["source"], p, R),
-                                src_ref[j],
+                                ax["source"], src_val[j], src_ref[j]
                             ),
                             SRC_DEADBAND[ax["source"]],
                         )
