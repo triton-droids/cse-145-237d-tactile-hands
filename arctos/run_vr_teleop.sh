@@ -27,8 +27,12 @@ for a in "$@"; do
 done
 
 [ -f "$ROS_SETUP" ] || { echo "missing $ROS_SETUP" >&2; exit 1; }
+# ROS setup.bash references unbound vars (AMENT_TRACE_SETUP_FILES, …);
+# disable nounset just for the source, then restore it.
+set +u
 # shellcheck disable=SC1090
 source "$ROS_SETUP"
+set -u
 
 PUB_PID=""; VIZ_PID=""; TELEOP_PID=""
 cleanup() {
