@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Launch the VR teleop stack: OpenVR->ROS publisher, then the teleop,
-# optionally the visualizer and/or the AmazingHand. Sources ROS2 Jazzy
-# and uses SYSTEM python (rclpy is not importable from conda).
+# Launch the VR teleop stack: OpenVR->ROS publisher, the teleop, and by
+# DEFAULT also the visualizer + calibration sliders + AmazingHand.
+# Sources ROS2 Jazzy and uses SYSTEM python (rclpy is not importable
+# from conda).
 #
-#   ./run_vr_teleop.sh                  # publisher + teleop
-#   ./run_vr_teleop.sh --viz            # + 3D visualizer
-#   ./run_vr_teleop.sh --viz --text     # + text visualizer
-#   ./run_vr_teleop.sh --hand           # + AmazingHand (--live)
-#   ./run_vr_teleop.sh --viz --hand     # everything
+#   ./run_vr_teleop.sh                  # everything (viz + cal + hand)
+#   ./run_vr_teleop.sh --no-hand        # everything except the hand
+#   ./run_vr_teleop.sh --no-viz --no-cal  # publisher + teleop + hand
+#   ./run_vr_teleop.sh --no-viz --no-cal --no-hand   # bare teleop
+#   ./run_vr_teleop.sh --text           # text visualizer instead of 3D
 #
 # Ctrl+C (or any exit) tears down ALL children. Teleop and hand are
 # sent SIGINT so their finally-blocks run (teleop: stop joints,
@@ -19,13 +20,16 @@ ROS_SETUP=/opt/ros/jazzy/setup.bash
 PY=/usr/bin/python3
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-WANT_VIZ=0
-WANT_HAND=0
+# On by default; --no-* opts out.
+WANT_VIZ=1
+WANT_HAND=1
+WANT_CAL=1
 VIZ_ARGS=()
 for a in "$@"; do
     case "$a" in
-        --viz)  WANT_VIZ=1 ;;
-        --hand) WANT_HAND=1 ;;
+        --no-viz)  WANT_VIZ=0 ;;
+        --no-hand) WANT_HAND=0 ;;
+        --no-cal)  WANT_CAL=0 ;;
         --text) VIZ_ARGS+=(--text) ;;
         *) echo "unknown arg: $a" >&2; exit 2 ;;
     esac
@@ -39,7 +43,7 @@ set +u
 source "$ROS_SETUP"
 set -u
 
-PUB_PID=""; VIZ_PID=""; TELEOP_PID=""; HAND_PID=""
+PUB_PID=""; VIZ_PID=""; TELEOP_PID=""; HAND_PID=""; CAL_PID=""
 
 # SIGINT a pid and wait up to ~5s for it to exit (so its finally runs).
 graceful() {
@@ -60,14 +64,18 @@ cleanup() {
     # Hardware-touching children first, in parallel, each given time
     # for its cleanup (teleop: arm stop + free CAN port; hand: open +
     # torque off). Then the data sources.
-    graceful "$TELEOP_PID" &
-    graceful "$HAND_PID" &
-    wait
-    for pid in "$VIZ_PID" "$PUB_PID"; do
+    # NOTE: wait ONLY on the two graceful subshells. A bare `wait`
+    # would also block on PUB/VIZ/CAL (also `&` background jobs of this
+    # shell) which are still alive here -> cleanup would deadlock and
+    # nothing below would ever get killed.
+    graceful "$TELEOP_PID" & gp_teleop=$!
+    graceful "$HAND_PID" & gp_hand=$!
+    wait "$gp_teleop" "$gp_hand" 2>/dev/null || true
+    for pid in "$VIZ_PID" "$CAL_PID" "$PUB_PID"; do
         [ -n "$pid" ] && kill -INT "$pid" 2>/dev/null || true
     done
     sleep 0.5
-    for pid in "$VIZ_PID" "$PUB_PID"; do
+    for pid in "$VIZ_PID" "$CAL_PID" "$PUB_PID"; do
         [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
     done
     echo "[run] done."
@@ -84,6 +92,11 @@ kill -0 "$PUB_PID" 2>/dev/null || { echo "[run] publisher failed" >&2; exit 1; }
 if [ "$WANT_VIZ" = 1 ]; then
     echo "[run] starting visualizer…"
     "$PY" vr_visualizer.py "${VIZ_ARGS[@]}" & VIZ_PID=$!
+fi
+
+if [ "$WANT_CAL" = 1 ]; then
+    echo "[run] starting calibration sliders…"
+    "$PY" vr_calibration_gui.py & CAL_PID=$!
 fi
 
 if [ "$WANT_HAND" = 1 ]; then
