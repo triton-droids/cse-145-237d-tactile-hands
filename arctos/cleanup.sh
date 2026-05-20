@@ -16,6 +16,7 @@ TARGETS=(
     vr_teleop_rotation.py
     vr_visualizer.py
     vr_hand_control.py
+    vr_calibration_gui.py
 )
 ARM_PORT=/dev/ttyACM0
 HAND_PORT=/dev/ttyACM1
