@@ -146,20 +146,23 @@ AXES = [
         "pos_deadband": 2.0,
         "filter":       None,
     },
-    {
-        # J4 (forearm roll) <- controller roll (wrist twist). Uses the
-        # same deadzone as J1 (SRC_DEADBAND["roll"] = YAW_DEADBAND_DEG).
-        "joint":        4,
-        "source":       "roll",
-        "scale":        1.0,
-        "invert":       False,
-        "kp":           6.0,
-        "max_travel":   45.0,
-        "max_rpm":      80,
-        "rpm_floor":    8,
-        "pos_deadband": 1.0,
-        "filter":       None,
-    },
+    # --- J4 (forearm roll) DISABLED -----------------------------------
+    # Roll no longer drives J4 (removed from AXES, so the teleop sends it
+    # no commands at all). Re-enable by un-commenting this block.
+    # {
+    #     # J4 (forearm roll) <- controller roll (wrist twist). Uses the
+    #     # same deadzone as J1 (SRC_DEADBAND["roll"] = YAW_DEADBAND_DEG).
+    #     "joint":        4,
+    #     "source":       "roll",
+    #     "scale":        1.0,
+    #     "invert":       False,
+    #     "kp":           6.0,
+    #     "max_travel":   45.0,
+    #     "max_rpm":      80,
+    #     "rpm_floor":    8,
+    #     "pos_deadband": 1.0,
+    #     "filter":       None,
+    # },
 ]
 
 YAW_DEADBAND_DEG = 10.0   # +/-10° dead, then linear (deadband() is zero
@@ -248,62 +251,137 @@ def controller_roll_deg(R):
     return math.degrees(math.atan2(right[1], up[1]))
 
 
+def controller_pitch_deg(R):
+    """
+    Elevation of the controller's pointing axis above the horizontal.
+    0 = pointing level; +90 = pointing straight up; -90 = straight down.
+
+    fwd = R@[0,0,-1]; pitch = atan2(fwd_up, |fwd_horizontal|). Pairs
+    with controller_yaw_deg/controller_roll_deg for a full readout.
+    """
+    fwd = R @ np.array([0.0, 0.0, -1.0])
+    horiz = math.hypot(fwd[0], fwd[2])
+    return math.degrees(math.atan2(fwd[1], horiz))
+
+
 # ---------------------------------------------------------------------------
-# Frame calibration (Beat-Saber style) — ROTATION ONLY. Capture a neutral
-# pose with the controller aligned to your forearm; every later pose's
-# ORIENTATION is re-expressed in that frame so yaw/pitch/roll decouple and
-# match your hand:
+# Frame calibration — a manual 6-DOF transform set with sliders
+# (vr_calibration_gui.py), persisted to vr_calibration.json, and ALWAYS
+# applied by the publisher (no A-button capture). The 6 params define a
+# frame; every controller pose is re-expressed in it:
 #   R_aligned = R_cal^T R
-# Position is passed through unchanged — height (J2/J3) stays world-
-# vertical (gravity), and the deadman clutch already re-zeros position
-# per engage, so there is nothing for a position offset to fix.
-# p_cal is still captured/stored (file schema stable, trivial to
-# re-enable) but NOT applied. Identity R_cal is a no-op.
+#   p_aligned = R_cal^T (p - t)        t = (x, y, z), R_cal from RPY
+# All-zero params = identity (a no-op, raw room frame). The JSON is
+# human-readable so it can be hand-edited too. The publisher hot-reloads
+# the file on mtime change, so slider tweaks apply live.
 # ---------------------------------------------------------------------------
 CALIB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "vr_calibration.json")
 
-
-def average_rotations(mats):
-    """Chordal-L2 mean of rotation matrices via SVD (robust for the
-    small spread of a held-still capture)."""
-    M = np.sum(mats, axis=0)
-    U, _, Vt = np.linalg.svd(M)
-    R = U @ Vt
-    if np.linalg.det(R) < 0:            # reflect -> proper rotation
-        U[:, -1] *= -1
-        R = U @ Vt
-    return R
+CAL_KEYS = ("x", "y", "z", "roll_deg", "pitch_deg", "yaw_deg")
+DEFAULT_CAL = {k: 0.0 for k in CAL_KEYS}
 
 
-def load_calibration(path=CALIB_PATH):
-    """Return (R_cal 3x3, p_cal 3). Identity/zero if no/invalid file."""
+def euler_to_mat(roll_deg, pitch_deg, yaw_deg):
+    """RPY (degrees) -> 3x3 rotation, intrinsic Rz(yaw)·Ry(pitch)·Rx(roll).
+    Axes are the SteamVR room frame: roll about X (right), pitch about Y
+    (up), yaw about Z (back)."""
+    r, p, y = (math.radians(a) for a in (roll_deg, pitch_deg, yaw_deg))
+    cr, sr = math.cos(r), math.sin(r)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
+    Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+    Rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
+    return Rz @ Ry @ Rx
+
+
+def mat_to_euler(R):
+    """Inverse of euler_to_mat: 3x3 rotation -> (roll, pitch, yaw) in
+    DEGREES for the Rz(yaw)·Ry(pitch)·Rx(roll) convention. Handles the
+    pitch=±90 gimbal case (folds the indeterminate roll into yaw)."""
+    R = np.asarray(R, dtype=float)
+    sp = -float(R[2, 0])
+    sp = max(-1.0, min(1.0, sp))
+    pitch = math.asin(sp)
+    if abs(math.cos(pitch)) > 1e-6:
+        roll = math.atan2(R[2, 1], R[2, 2])
+        yaw = math.atan2(R[1, 0], R[0, 0])
+    else:                                  # gimbal lock
+        roll = 0.0
+        yaw = math.atan2(-R[0, 1], R[1, 1])
+    return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
+
+
+def gesture_calibration(fwd_dir, up_dir):
+    """Two captured controller pointing-axis directions (room coords)
+    -> the 6-param calibration dict (rotation only; x/y/z = 0).
+
+    Builds the frame where the 'forward' gesture maps to -Z and the
+    'up' gesture to +Y, via Gram-Schmidt:
+        right = unit(f × u);  up = right × f;  R_cal = [right|up|-f]
+    Raises ValueError if the two directions are near-parallel (the
+    cross product is then ill-defined — re-capture with a clear ~90°
+    between forward and up)."""
+    f = np.asarray(fwd_dir, dtype=float)
+    u0 = np.asarray(up_dir, dtype=float)
+    f = f / (np.linalg.norm(f) or 1.0)
+    u0 = u0 / (np.linalg.norm(u0) or 1.0)
+    right = np.cross(f, u0)
+    n = np.linalg.norm(right)
+    if n < 0.15:                           # ~ <8.6° apart -> reject
+        raise ValueError(
+            "forward and up gestures are too close to parallel "
+            f"(sin={n:.3f}); point them ~90° apart and recapture")
+    right /= n
+    up = np.cross(right, f)
+    R_cal = np.column_stack([right, up, -f])
+    roll, pitch, yaw = mat_to_euler(R_cal)
+    return {"x": 0.0, "y": 0.0, "z": 0.0,
+            "roll_deg": roll, "pitch_deg": pitch, "yaw_deg": yaw}
+
+
+def cal_to_mats(d):
+    """6-param dict -> (R_cal 3x3, t 3)."""
+    R_cal = euler_to_mat(d["roll_deg"], d["pitch_deg"], d["yaw_deg"])
+    t = np.array([d["x"], d["y"], d["z"]], dtype=float)
+    return R_cal, t
+
+
+def load_cal_params(path=CALIB_PATH):
+    """Return the 6-param dict (defaults filled in for any missing /
+    no / invalid file)."""
+    d = dict(DEFAULT_CAL)
     try:
         with open(path) as f:
-            d = json.load(f)
-        R = np.array(d["R_cal"], dtype=float).reshape(3, 3)
-        p = np.array(d["p_cal"], dtype=float).reshape(3)
-        return R, p
-    except (OSError, ValueError, KeyError):
-        return np.eye(3), np.zeros(3)
+            raw = json.load(f)
+        for k in CAL_KEYS:
+            if k in raw:
+                d[k] = float(raw[k])
+    except (OSError, ValueError, TypeError):
+        pass
+    return d
 
 
-def save_calibration(R_cal, p_cal, path=CALIB_PATH):
+def save_cal_params(d, path=CALIB_PATH):
+    """Atomically write the 6-param dict as human-readable JSON."""
+    out = {k: float(d.get(k, 0.0)) for k in CAL_KEYS}
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump({"R_cal": np.asarray(R_cal).reshape(3, 3).tolist(),
-                   "p_cal": np.asarray(p_cal).reshape(3).tolist()}, f,
-                  indent=2)
+        json.dump(out, f, indent=2)
+        f.write("\n")
     os.replace(tmp, path)               # atomic
 
 
-def apply_calibration(p, R, R_cal, p_cal):
-    """
-    Rotation-only: re-express ORIENTATION in the calibrated frame,
-    position passes through untouched. p_cal is accepted (stable
-    signature) but intentionally unused.
-    """
-    return p, R_cal.T @ R
+def load_calibration(path=CALIB_PATH):
+    """Convenience for the publisher: (R_cal 3x3, t 3) from the file."""
+    return cal_to_mats(load_cal_params(path))
+
+
+def apply_calibration(p, R, R_cal, t):
+    """Re-express a controller pose in the calibrated 6-DOF frame.
+    All-zero calibration -> (p, R) unchanged."""
+    return R_cal.T @ (p - t), R_cal.T @ R
 
 
 def read_source(name, p, R):
