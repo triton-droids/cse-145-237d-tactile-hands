@@ -27,6 +27,9 @@ Ctrl+C to quit.
 
 import argparse
 import collections
+import os
+import signal
+import sys
 import time
 
 import numpy as np
@@ -36,6 +39,9 @@ from vr_ros_io import (
     SRC_DEADBAND,
     SRC_UNIT,
     ControllerSubscriber,
+    controller_pitch_deg,
+    controller_roll_deg,
+    controller_yaw_deg,
     deadband,
     disarm_term_signals,
     read_source,
@@ -91,11 +97,11 @@ def poll(vr):
     return ok, p, R, (clutch if ok else False)
 
 
-def run_text(vr):
+def run_text(vr, stop):
     print("[viz] TEXT mode. Hold B to set reference. Ctrl+C to quit.")
     src_ref = None
     prev_clutch = False
-    while True:
+    while not stop["v"]:
         ok, p, R, clutch = poll(vr)
         if clutch and not prev_clutch and ok:
             src_ref = {ax["joint"]: read_source(ax["source"], p, R)
@@ -109,13 +115,16 @@ def run_text(vr):
         else:
             tgt = axis_targets(p, R, src_ref)
             cl = "B-DOWN" if clutch else "  --  "
+            rpy = (f"rpy[R{controller_roll_deg(R):+.0f} "
+                   f"P{controller_pitch_deg(R):+.0f} "
+                   f"Y{controller_yaw_deg(R):+.0f}]")
             line = (f"pos[{p[0]:+.2f} {p[1]:+.2f} {p[2]:+.2f}]m  "
-                    f"{cl}  {fmt_axes(tgt)}")
+                    f"{rpy}  {cl}  {fmt_axes(tgt)}")
         print("\r\033[K" + line, end="", flush=True)
         time.sleep(1.0 / 30.0)
 
 
-def run_3d(vr, target_fps):
+def run_3d(vr, target_fps, stop):
     import matplotlib
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
@@ -126,7 +135,7 @@ def run_3d(vr, target_fps):
               f"window will show. Install a GUI backend: "
               f"pip install PyQt6   (then it uses QtAgg). Falling back "
               f"to text mode.")
-        return run_text(vr)
+        return run_text(vr, stop)
 
     print(f"[viz] 3D mode ({matplotlib.get_backend()}), target "
           f"{target_fps:.0f} FPS. Hold B to set reference. Close window "
@@ -142,7 +151,7 @@ def run_3d(vr, target_fps):
         print(f"[viz] 3D backend failed to start ({e}). If this is the "
               f"Qt xcb plugin: sudo apt install libxcb-cursor0. Falling "
               f"back to text mode.")
-        return run_text(vr)
+        return run_text(vr, stop)
     ax = fig.add_subplot(111, projection="3d")
     # Plot axes are remapped so "up" is visually up:
     #   plot-X = room X (right), plot-Y = room Z (fwd/back),
@@ -154,16 +163,25 @@ def run_3d(vr, target_fps):
     HALF = 0.4  # half-extent of the view cube (m)
 
     # --- Persistent artists: created once, data updated each frame ----
-    (trail_ln,) = ax.plot([], [], [], lw=1, alpha=0.5, color="gray")
-    (pt_ln,) = ax.plot([], [], [], "o", ms=9, color="tab:blue")
-    (ref_ln,) = ax.plot([], [], [], "*", ms=14, color="tab:purple")
+    (trail_ln,) = ax.plot([], [], [], lw=1, alpha=0.5, color="gray",
+                          label="trail")
+    (pt_ln,) = ax.plot([], [], [], "o", ms=9, color="tab:blue",
+                        label="controller pos")
+    (ref_ln,) = ax.plot([], [], [], "*", ms=14, color="tab:purple",
+                        label="clutch ref")
     (refseg_ln,) = ax.plot([], [], [], "--", color="tab:purple",
                            alpha=0.6)
+    # The point's orientation is drawn as a 3-line triad; legend below
+    # says which colour is which controller axis.
     triad = {
-        c: ax.plot([], [], [], color=col, lw=2)[0]
-        for c, col in (("fwd", "tab:red"), ("up", "tab:green"),
-                       ("right", "tab:orange"))
+        c: ax.plot([], [], [], color=col, lw=2, label=lab)[0]
+        for c, col, lab in (
+            ("fwd", "tab:red", "fwd  (−Z, points out)"),
+            ("up", "tab:green", "up   (+Y, J2/J3 source)"),
+            ("right", "tab:orange", "right (+X, roll axis)"),
+        )
     }
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
     info = ax.text2D(0.02, 0.98, "", transform=ax.transAxes, va="top",
                      fontsize=9, family="monospace")
 
@@ -183,7 +201,7 @@ def run_3d(vr, target_fps):
         ln.set_data(xs, zs)
         ln.set_3d_properties(ys)
 
-    while plt.fignum_exists(fig.number):
+    while plt.fignum_exists(fig.number) and not stop["v"]:
         t0 = time.time()
         ok, p, R, clutch = poll(vr)
         if clutch and not prev_clutch and ok:
@@ -232,6 +250,9 @@ def run_3d(vr, target_fps):
                 f"FPS: {fps:4.1f}",
                 f"clutch: {'B-DOWN' if clutch else 'released'}",
                 f"pos (m): {p[0]:+.3f} {p[1]:+.3f} {p[2]:+.3f}",
+                f"rpy (deg): R={controller_roll_deg(R):+6.1f}  "
+                f"P={controller_pitch_deg(R):+6.1f}  "
+                f"Y={controller_yaw_deg(R):+6.1f}",
             ]
             for ax_ in AXES:
                 j = ax_["joint"]
@@ -284,16 +305,39 @@ def main():
 
     print("[viz] subscribing to VR ROS topics…")
     vr = ControllerSubscriber(node_name="vr_visualizer")
+
+    # ControllerSubscriber reclaims SIGINT and *raises* KeyboardInterrupt
+    # at an arbitrary point. In this process that point lands inside the
+    # Qt draw, where PyQt swallows it and the event loop keeps running —
+    # so the viz never exits. Override with a COOPERATIVE handler: just
+    # set a flag the render loop polls, so teardown always runs (here,
+    # standalone, and under the launcher's kill -INT).
+    stop = {"v": False}
+
+    def _stop(_signo, _frame):
+        stop["v"] = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
     try:
         if use_3d:
-            run_3d(vr, args.fps)
+            run_3d(vr, args.fps, stop)
         else:
-            run_text(vr)
+            run_text(vr, stop)
     except KeyboardInterrupt:
         print("\n[viz] bye")
     finally:
         disarm_term_signals()
         vr.shutdown()
+        # The rclpy/DDS daemon spin thread std::terminate()s during
+        # normal interpreter teardown ("Aborted (core dumped)"). This
+        # process owns no hardware and nothing below needs Python
+        # teardown, so flush and hard-exit to die instantly and
+        # silently instead.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
 
 
 if __name__ == "__main__":
