@@ -6,6 +6,7 @@
 #
 #   ./run_vr_teleop.sh                  # everything (viz + cal + hand)
 #   ./run_vr_teleop.sh --no-hand        # everything except the hand
+#   ./run_vr_teleop.sh --no-arm         # no arm/teleop (publisher + viz + cal + hand)
 #   ./run_vr_teleop.sh --no-viz --no-cal  # publisher + teleop + hand
 #   ./run_vr_teleop.sh --no-viz --no-cal --no-hand   # bare teleop
 #   ./run_vr_teleop.sh --text           # text visualizer instead of 3D
@@ -24,12 +25,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WANT_VIZ=1
 WANT_HAND=1
 WANT_CAL=1
+WANT_ARM=1
 VIZ_ARGS=()
 for a in "$@"; do
     case "$a" in
         --no-viz)  WANT_VIZ=0 ;;
         --no-hand) WANT_HAND=0 ;;
         --no-cal)  WANT_CAL=0 ;;
+        --no-arm)  WANT_ARM=0 ;;
         --text) VIZ_ARGS+=(--text) ;;
         *) echo "unknown arg: $a" >&2; exit 2 ;;
     esac
@@ -104,6 +107,14 @@ if [ "$WANT_HAND" = 1 ]; then
     "$PY" vr_hand_control.py --live & HAND_PID=$!
 fi
 
-echo "[run] starting teleop (foreground)…"
-"$PY" vr_teleop_rotation.py & TELEOP_PID=$!
-wait "$TELEOP_PID"
+if [ "$WANT_ARM" = 1 ]; then
+    echo "[run] starting teleop (foreground)…"
+    "$PY" vr_teleop_rotation.py & TELEOP_PID=$!
+    wait "$TELEOP_PID"
+else
+    echo "[run] arm/teleop DISABLED (--no-arm) — running publisher"\
+         "+ viz/cal/hand only. Ctrl+C to quit."
+    # No teleop to wait on; block on the publisher so the stack stays up
+    # until the publisher dies or Ctrl+C triggers cleanup().
+    wait "$PUB_PID"
+fi

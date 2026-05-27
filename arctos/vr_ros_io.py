@@ -118,34 +118,38 @@ AXES = [
         "pos_deadband": 1.0,
         "filter":       YAW_FILTER,
     },
-    {
-        "joint":        2,
-        "source":       "y",
-        "scale":        240.0,
-        "invert":       True,
-        "kp":           6.0,
-        "max_travel":   1000.0,   # intentionally large: soft travel
-                                  # clamp + runaway guard effectively off
-        "max_rpm":      240,      # 3x J1 cap (was the shared 80)
-        "rpm_floor":    45,
-        "pos_deadband": 2.0,
-        "filter":       None,
-    },
-    {
-        # J3 (elbow) follows controller height exactly like J2 — both
-        # move together when you raise/lower your hand.
-        "joint":        3,
-        "source":       "y",
-        "scale":        240.0,
-        "invert":       False,
-        "kp":           6.0,
-        "max_travel":   1000.0,   # intentionally large: soft travel
-                                  # clamp + runaway guard effectively off
-        "max_rpm":      240,
-        "rpm_floor":    45,
-        "pos_deadband": 2.0,
-        "filter":       None,
-    },
+    # --- J2 (shoulder) DISABLED ---------------------------------------
+    # Removed from AXES so the teleop sends it no commands at all.
+    # Re-enable by un-commenting this block.
+    # {
+    #     "joint":        2,
+    #     "source":       "y",
+    #     "scale":        240.0,
+    #     "invert":       True,
+    #     "kp":           6.0,
+    #     "max_travel":   1000.0,   # intentionally large: soft travel
+    #                               # clamp + runaway guard effectively off
+    #     "max_rpm":      240,      # 3x J1 cap (was the shared 80)
+    #     "rpm_floor":    45,
+    #     "pos_deadband": 2.0,
+    #     "filter":       None,
+    # },
+    # --- J3 (elbow) DISABLED ------------------------------------------
+    # Followed controller height like J2. Removed from AXES so the
+    # teleop sends it no commands at all. Re-enable by un-commenting.
+    # {
+    #     "joint":        3,
+    #     "source":       "y",
+    #     "scale":        240.0,
+    #     "invert":       False,
+    #     "kp":           6.0,
+    #     "max_travel":   1000.0,   # intentionally large: soft travel
+    #                               # clamp + runaway guard effectively off
+    #     "max_rpm":      240,
+    #     "rpm_floor":    45,
+    #     "pos_deadband": 2.0,
+    #     "filter":       None,
+    # },
     # --- J4 (forearm roll) DISABLED -----------------------------------
     # Roll no longer drives J4 (removed from AXES, so the teleop sends it
     # no commands at all). Re-enable by un-commenting this block.
