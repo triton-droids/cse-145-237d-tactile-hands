@@ -9,9 +9,10 @@ from the Index's capacitive finger sensing. A 3D visualizer and a
 
 ```bash
 # (one-time) system deps, see "Requirements" below
-./run_vr_teleop.sh                       # everything: pub + teleop + viz + cal + hand
+./run_vr_teleop.sh                       # everything: pub + teleop + viz + cal + hand + object
 ./run_vr_teleop.sh --no-hand             # everything but the hand
-./run_vr_teleop.sh --no-viz --no-cal     # bare teleop + hand
+./run_vr_teleop.sh --no-object           # skip the YOLO object-force detector
+./run_vr_teleop.sh --no-viz --no-cal     # bare teleop + hand + object
 ./run_vr_teleop.sh --no-viz --no-cal --no-hand   # bare teleop
 ./run_vr_teleop.sh --text                # text-mode visualizer
 ```
@@ -51,6 +52,28 @@ stuck (orphaned process, busy serial port), run **`bash cleanup.sh`**.
 One publisher owns SteamVR. Every consumer reads ROS — no second OpenVR
 client, no shared state to corrupt.
 
+### Object-aware grasp force
+
+A separate detector closes the force loop, same one-owner pattern:
+
+```
+   object USB cam ---> +-------------------+  /hand/force_limit  (Float32)
+                       | vr_object_force.py| -------------------+
+                       |  (YOLO26 .pt)     |  /hand/object_label +--> vr_hand_control.py
+                       +-------------------+  (String)               (clamps each finger)
+                                                                          ^
+   ESP32 FSR board ---> /dev/ttyUSB0 (4 FSR channels + white/red LEDs) ---+
+```
+
+`vr_object_force.py` watches the object camera, classifies it with the
+fine-tuned YOLO26 model, looks the class up in `OBJECT_FORCE_LIMITS`
+(in `vr_ros_io.py`), and publishes that threshold. `vr_hand_control.py`
+reads the ESP32 FSRs directly off `/dev/ttyUSB0` and stops closing any
+finger whose force exceeds the active threshold (it may still open).
+When the object node is down or sees nothing, the hand falls back to
+`DEFAULT_FORCE_LIMIT`, so force-stop degrades safely to a single global
+limit — never to "no limit."
+
 ## Requirements
 
 | Layer | Used as | Why |
@@ -59,15 +82,23 @@ client, no shared state to corrupt.
 | ROS 2 Jazzy at `/opt/ros/jazzy` | sourced by the launcher | `rclpy`, message types |
 | SteamVR | runs alongside | OpenVR action manifest in `teleop_actions.json` |
 | `openvr`, `python-can`, `rustypot`, `matplotlib`, `PyQt6` | pip into system python | controller, MKS CAN, SCS servos, plots, GUI |
+| `pyserial` | pip into system python | ESP32 FSR board on `/dev/ttyUSB0` (force-stop) |
+| `ultralytics`, `opencv-python`, `torch` | pip into system python | the YOLO26 object detector (`vr_object_force.py`) |
+| a fine-tuned `.pt` model | copied next to the scripts (or `$YOLO_MODEL_DIR`) | object classification — see the model files in the training repo |
 | `libxcb-cursor0` | apt | Qt6 xcb platform plugin |
 
 One-shot install: `bash /tmp/install_vr_ros_deps.sh` (the script that
-got us here).
+got us here). `ultralytics`+`torch` are heavy and must live in the
+**system** python3 (rclpy can't run from conda), so the object node and
+the rest of the stack share one interpreter. The CoreML `.mlpackage`
+model variants are Apple-only — on this rig use a `.pt`.
 
 ### Devices
 
 - **CANable** (USB VID `16d0:117e`) at `/dev/ttyACM0` — MKS SERVO42/57D CAN bus.
 - **QinHeng CH340-ish** (USB VID `1a86:55d3`) at `/dev/ttyACM1` — AmazingHand SCS bus.
+- **ESP32 FSR board** at `/dev/ttyUSB0` — 4 FSR channels @115200 + white/red overload LEDs (`firmware/firmware.ino`). Read by `vr_hand_control.py` for force-stop.
+- **Object USB webcam** at v4l index `1` (configurable via `vr_object_force.py --camera N`) — what the YOLO detector classifies.
 - The arm-port resolver prefers the CANable by USB VID — wrong port for the arm is impossible.
 - Be in the `dialout` group (`sudo usermod -aG dialout $USER`, then re-login).
 
@@ -80,10 +111,11 @@ limp, the GUIs save and close) and `SIGKILL` after ≤ 5 s as a backstop.
 
 | Flag | Effect |
 |---|---|
-| _(none)_ | publisher + teleop + visualizer + calibration GUI + hand (`--live`) |
+| _(none)_ | publisher + teleop + visualizer + calibration GUI + hand (`--live`) + object detector |
 | `--no-viz` | skip the visualizer |
 | `--no-cal` | skip the calibration sliders window |
 | `--no-hand` | skip the AmazingHand |
+| `--no-object` | skip the YOLO object-force detector (hand falls back to `DEFAULT_FORCE_LIMIT`) |
 | `--text` | text-mode visualizer instead of 3D |
 
 Unknown flags are rejected (including the old `--viz/--cal/--hand`,
@@ -95,7 +127,8 @@ which are now defaults).
 |---|---|
 | `vr_controller_publisher.py` | OpenVR → ROS. Reads pose / clutch / skeletal finger curls / trigger / grip. Applies the 6-DOF calibration from `vr_calibration.json` (hot-reloaded on mtime change) before publishing. |
 | `vr_teleop_rotation.py` | The actual arm teleop. Subscribes to pose+clutch, runs a per-joint position P-loop (closed on each MKS encoder) over the arm in speed mode. |
-| `vr_hand_control.py` | Subscribes to `/vr/finger_curls`, drives the 8 SCS servos. `--live` actually moves; default is a dry-run print. |
+| `vr_hand_control.py` | Subscribes to `/vr/finger_curls`, drives the 8 SCS servos. Also reads the ESP32 FSRs off `/dev/ttyUSB0` and applies the object-aware **force-stop** (won't close a finger past its threshold). `--live` actually moves; default is a dry-run print. `--no-fsr` / `--no-led` opt out of force-stop / LEDs. |
+| `vr_object_force.py` | Runs the fine-tuned YOLO26 detector on the object camera and publishes `/hand/force_limit` + `/hand/object_label`. Detect-once-lock by default; `--continuous`, `--model {s,l}`, `--camera N`, `--show`. |
 | `vr_visualizer.py` | 3D matplotlib (or text) view of the controller, trail, orientation triad, clutch reference, RPY readout, and what each joint would be commanded to. |
 | `vr_calibration_gui.py` | 6 slider rows (X Y Z m, Roll Pitch Yaw deg) with `-`/`+` nudges, typable boxes, plus **Capture FWD** / **Capture UP** gesture calibration. Writes `vr_calibration.json`. |
 | `vr_ros_io.py` | Shared library: topic names, axis config (`AXES`), filtering, calibration math, ROS subscribers. No `openvr`, no `python-can` — viz and cal can import it without arm/HMD deps. |
@@ -150,6 +183,32 @@ target = joint_ref + dir * scale * (source_now - source_ref)
 target = clamp(target, joint_ref ± max_travel)
 rpm    = clip(KP * (target - encoder), ±max_rpm)   # with per-joint rpm_floor
 ```
+
+## Object-aware force thresholds
+
+The hand stops closing a finger once that finger's FSR exceeds a
+threshold chosen from the object it's grasping.
+
+- **The dictionary** lives in `vr_ros_io.py` as `OBJECT_FORCE_LIMITS`
+  (plus `DEFAULT_FORCE_LIMIT`). Keys **must** match the YOLO class names
+  (`Book`, `Empty Plastic Bottle`, `Filled Plastic Bottle`,
+  `Plastic Box Container`). Values are raw FSR ADC counts (0–4095).
+  **The shipped numbers are placeholders — tune them on the bench.**
+- **Tuning loop.** Run `vr_hand_control.py` (DRY is fine) and watch its
+  `F=t,i,m,r` readout while you press each object into the fingers; pick
+  the count just below where it deforms, and edit `OBJECT_FORCE_LIMITS`.
+  No restart of anything but the hand (and only to re-read the dict) is
+  needed; the threshold itself flows live over ROS.
+- **Detection mode.** Default is *detect-once-lock*: the object node
+  commits a class after `LOCK_STREAK` consistent frames and holds that
+  threshold for the grasp (restart the node, or press `r` in `--show`,
+  for the next object). `--continuous` re-evaluates every frame.
+- **Model pick.** `--model s` (fast, default) or `--model l` (accurate);
+  both are the `.pt` files from the training repo. `$YOLO_MODEL_DIR` or
+  `--model-path` point at where you copied them.
+- **Safe degradation.** No object node, no detection, or a stale topic →
+  the hand uses `DEFAULT_FORCE_LIMIT`. Force-stop is never silently off;
+  to actually disable it, run the hand with `--no-fsr`.
 
 ## Controls
 
@@ -211,7 +270,8 @@ arctos/
 ├── cleanup.sh                # universal reset
 ├── vr_controller_publisher.py
 ├── vr_teleop_rotation.py
-├── vr_hand_control.py
+├── vr_hand_control.py           # hand driver + FSR force-stop
+├── vr_object_force.py          # YOLO -> per-object force threshold
 ├── vr_visualizer.py
 ├── vr_calibration_gui.py
 ├── vr_ros_io.py              # shared lib (topics, AXES, calibration, subscribers)

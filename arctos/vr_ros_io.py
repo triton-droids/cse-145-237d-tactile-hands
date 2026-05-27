@@ -81,6 +81,30 @@ TOPIC_GRIP = "/vr/grip"              # std_msgs/Float32, 0..1
 # The AmazingHand has no pinky; the driver uses the first four.
 FINGER_ORDER = ("thumb", "index", "middle", "ring", "pinky")
 
+# Object-aware grasp force. vr_object_force.py runs the fine-tuned YOLO26
+# detector on the object camera and publishes the force threshold the hand
+# should stop closing at for whatever object it sees; vr_hand_control.py
+# subscribes and clamps each finger.
+TOPIC_FORCE_LIMIT = "/hand/force_limit"     # std_msgs/Float32, raw FSR ADC units
+TOPIC_OBJECT_LABEL = "/hand/object_label"   # std_msgs/String, class name or ""
+
+# Per-object grasp force thresholds, raw FSR ADC counts (0..4095, same scale
+# the firmware/ESP32 reports). The hand stops closing a finger once that
+# finger's FSR exceeds the active limit. Keys MUST match the YOLO class names
+# (the trained model's data.yaml `names`).
+#   *** PLACEHOLDER VALUES — tune on the bench, then replace these numbers. ***
+DEFAULT_FORCE_LIMIT = 600.0                 # used when no object is detected
+OBJECT_FORCE_LIMITS = {
+    "Book":                  600.0,
+    "Empty Plastic Bottle":  300.0,         # thin/crushable -> stop early
+    "Filled Plastic Bottle": 800.0,         # rigid when full -> allow more
+    "Plastic Box Container": 650.0,
+}
+
+# FSR channel order as wired in firmware/firmware.ino (analogRead(fsrPins[0..3]))
+# and used by hand_control/angle_control.py's finger_map. Index = FSR channel.
+FSR_FINGER_ORDER = ("thumb", "index", "middle", "ring")
+
 # One-Euro filter spec for a noisy source.
 #   mincutoff : lower  = smoother but laggier at low speed
 #   beta      : higher = less lag when moving fast
@@ -605,7 +629,7 @@ class HandSubscriber:
     def __init__(self, node_name="vr_hand_consumer"):
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
-        from std_msgs.msg import Float32, Float32MultiArray
+        from std_msgs.msg import Float32, Float32MultiArray, String
 
         self._rclpy = rclpy
         ros_init_no_signals()
@@ -615,6 +639,10 @@ class HandSubscriber:
         self._curls_t = 0.0
         self._trigger = 0.0
         self._grip = 0.0
+        # Object-aware force limit (published by vr_object_force.py).
+        self._flimit = None
+        self._flimit_t = 0.0
+        self._label = ""
 
         self._node.create_subscription(
             Float32MultiArray, TOPIC_FINGERS, self._on_fingers, 10
@@ -624,6 +652,12 @@ class HandSubscriber:
         )
         self._node.create_subscription(
             Float32, TOPIC_GRIP, self._on_grip, 10
+        )
+        self._node.create_subscription(
+            Float32, TOPIC_FORCE_LIMIT, self._on_force_limit, 10
+        )
+        self._node.create_subscription(
+            String, TOPIC_OBJECT_LABEL, self._on_object_label, 10
         )
         self._exec = SingleThreadedExecutor()
         self._exec.add_node(self._node)
@@ -656,12 +690,38 @@ class HandSubscriber:
         with self._lock:
             self._grip = float(msg.data)
 
+    def _on_force_limit(self, msg):
+        with self._lock:
+            self._flimit = float(msg.data)
+            self._flimit_t = time.time()
+
+    def _on_object_label(self, msg):
+        with self._lock:
+            self._label = str(msg.data)
+
     def latest(self):
         now = time.time()
         with self._lock:
             age = (now - self._curls_t) if self._curls_t else 1e9
             curls = list(self._curls) if self._curls is not None else None
             return curls, self._trigger, self._grip, age
+
+    def force_limit(self):
+        """
+        Latest object-aware force threshold.
+
+        Returns (limit, label, age_s):
+          limit : float (raw FSR ADC) or None until the first message
+          label : detected object class name, or ""
+          age_s : seconds since the last force-limit message (1e9 if none)
+
+        Callers should fall back to DEFAULT_FORCE_LIMIT when limit is None
+        or age_s exceeds their staleness budget (object node down).
+        """
+        now = time.time()
+        with self._lock:
+            age = (now - self._flimit_t) if self._flimit_t else 1e9
+            return self._flimit, self._label, age
 
     def shutdown(self):
         disarm_term_signals()

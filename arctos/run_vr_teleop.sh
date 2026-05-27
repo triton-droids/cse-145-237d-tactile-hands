@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Launch the VR teleop stack: OpenVR->ROS publisher, the teleop, and by
-# DEFAULT also the visualizer + calibration sliders + AmazingHand.
+# DEFAULT also the visualizer + calibration sliders + AmazingHand + the
+# YOLO object detector (per-object grasp force thresholds).
 # Sources ROS2 Jazzy and uses SYSTEM python (rclpy is not importable
 # from conda).
 #
-#   ./run_vr_teleop.sh                  # everything (viz + cal + hand)
+#   ./run_vr_teleop.sh                  # everything (viz + cal + hand + object)
 #   ./run_vr_teleop.sh --no-hand        # everything except the hand
-#   ./run_vr_teleop.sh --no-viz --no-cal  # publisher + teleop + hand
+#   ./run_vr_teleop.sh --no-object      # skip the YOLO object detector
+#   ./run_vr_teleop.sh --no-viz --no-cal  # publisher + teleop + hand + object
 #   ./run_vr_teleop.sh --no-viz --no-cal --no-hand   # bare teleop
 #   ./run_vr_teleop.sh --text           # text visualizer instead of 3D
 #
@@ -24,12 +26,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WANT_VIZ=1
 WANT_HAND=1
 WANT_CAL=1
+WANT_OBJECT=1
 VIZ_ARGS=()
 for a in "$@"; do
     case "$a" in
         --no-viz)  WANT_VIZ=0 ;;
         --no-hand) WANT_HAND=0 ;;
         --no-cal)  WANT_CAL=0 ;;
+        --no-object) WANT_OBJECT=0 ;;
         --text) VIZ_ARGS+=(--text) ;;
         *) echo "unknown arg: $a" >&2; exit 2 ;;
     esac
@@ -43,7 +47,7 @@ set +u
 source "$ROS_SETUP"
 set -u
 
-PUB_PID=""; VIZ_PID=""; TELEOP_PID=""; HAND_PID=""; CAL_PID=""
+PUB_PID=""; VIZ_PID=""; TELEOP_PID=""; HAND_PID=""; CAL_PID=""; OBJ_PID=""
 
 # SIGINT a pid and wait up to ~5s for it to exit (so its finally runs).
 graceful() {
@@ -71,11 +75,11 @@ cleanup() {
     graceful "$TELEOP_PID" & gp_teleop=$!
     graceful "$HAND_PID" & gp_hand=$!
     wait "$gp_teleop" "$gp_hand" 2>/dev/null || true
-    for pid in "$VIZ_PID" "$CAL_PID" "$PUB_PID"; do
+    for pid in "$VIZ_PID" "$CAL_PID" "$OBJ_PID" "$PUB_PID"; do
         [ -n "$pid" ] && kill -INT "$pid" 2>/dev/null || true
     done
     sleep 0.5
-    for pid in "$VIZ_PID" "$CAL_PID" "$PUB_PID"; do
+    for pid in "$VIZ_PID" "$CAL_PID" "$OBJ_PID" "$PUB_PID"; do
         [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
     done
     echo "[run] done."
@@ -88,6 +92,11 @@ echo "[run] starting VR->ROS publisher…"
 "$PY" vr_controller_publisher.py & PUB_PID=$!
 sleep 2
 kill -0 "$PUB_PID" 2>/dev/null || { echo "[run] publisher failed" >&2; exit 1; }
+
+if [ "$WANT_OBJECT" = 1 ]; then
+    echo "[run] starting object detector (per-object force thresholds)…"
+    "$PY" vr_object_force.py & OBJ_PID=$!
+fi
 
 if [ "$WANT_VIZ" = 1 ]; then
     echo "[run] starting visualizer…"
