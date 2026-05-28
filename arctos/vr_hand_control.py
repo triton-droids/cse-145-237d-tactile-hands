@@ -26,6 +26,7 @@ Finger curl convention (vr_ros_io.FINGER_ORDER): 0.0 = open/straight,
 """
 
 import argparse
+import threading
 import time
 
 import numpy as np
@@ -34,6 +35,18 @@ from vr_ros_io import FINGER_ORDER, HandSubscriber, disarm_term_signals
 
 SERIAL_PORT = "/dev/ttyACM1"      # the QinHeng 1A86 servo bus (not the CAN)
 BAUD = 1_000_000
+
+# ESP32 FSR bridge: CSV "t,i,m,r\n" at 115200, 4 channels in the order
+# thumb, index, middle, ring (matches hand_control/angle_control.py).
+# Pinky has no sensor. If the port can't be opened we silently disable
+# the force stop — the hand still runs.
+FSR_PORT = "/dev/ttyUSB0"
+FSR_BAUD = 115200
+FSR_FINGER_INDEX = {"thumb": 0, "index": 1, "middle": 2, "ring": 3}
+# Per-finger force threshold (raw ADC counts). Above this, the finger
+# is not allowed to curl any further this loop (mirrors angle_control.py
+# FORCE_LIMIT=600).
+FORCE_LIMIT = 1
 
 # CALIBRATION — per-servo neutral offsets, degrees, indexed by
 # (servo_id - 1). Taken from this project's hand_control/angle_control.py
@@ -55,6 +68,10 @@ OPEN_A2, CLOSE_A2 = 35.0, -90.0   # finger angle_2 (opposite — differential)
 
 SERVO_SPEED = 5                   # rustypot goal speed (demo MaxSpeed-2)
 CURL_ALPHA = 0.35                 # EMA smoothing on incoming curls
+# Max curl increase per loop iteration (0..1). Caps how fast a finger
+# can *close*; opening is unrestricted so a release is still snappy.
+# At LOOP_HZ=30 a step of 0.02 = full close in ~1.7s.
+MAX_CLOSE_STEP = 0.02
 LOOP_HZ = 30.0
 VR_STALE_S = 0.25                 # older finger data -> hold last goal
 
@@ -65,6 +82,72 @@ def finger_targets_deg(curl):
     a1 = OPEN_A1 + c * (CLOSE_A1 - OPEN_A1)
     a2 = OPEN_A2 + c * (CLOSE_A2 - OPEN_A2)
     return a1, a2
+
+
+class FSRReader:
+    """
+    Background thread reading 4-int CSV from the ESP32. Latest values
+    are exposed as a 4-tuple via .latest(); reads are lock-free (only
+    one writer, atomic tuple assignment).
+    """
+    def __init__(self, port=FSR_PORT, baud=FSR_BAUD):
+        self.port = port
+        self.baud = baud
+        self._forces = (0, 0, 0, 0)
+        self._stop = False
+        self._ser = None
+        self._th = None
+
+    def start(self):
+        import serial
+        try:
+            self._ser = serial.Serial(self.port, self.baud, timeout=0.1)
+        except Exception as e:
+            print(f"[hand] FSR disabled: can't open {self.port}: {e}")
+            return False
+        self._th = threading.Thread(
+            target=self._run, daemon=True, name="hand-fsr"
+        )
+        self._th.start()
+        print(f"[hand] FSR reader on {self.port} (limit={FORCE_LIMIT})")
+        return True
+
+    def _run(self):
+        while not self._stop:
+            try:
+                line = self._ser.readline().decode(errors="ignore").strip()
+            except Exception:
+                continue
+            if not line:
+                continue
+            parts = line.split(",")
+            if len(parts) != 4:
+                continue
+            try:
+                self._forces = tuple(int(x) for x in parts)
+            except ValueError:
+                pass
+
+    def latest(self):
+        return self._forces
+
+    def send_led(self, overload: bool):
+        """White on normally, red on when any FSR is over the limit."""
+        if self._ser is None:
+            return
+        white, red = (0, 100) if overload else (100, 0)
+        try:
+            self._ser.write(f"{white},{red}\n".encode())
+        except Exception:
+            pass
+
+    def shutdown(self):
+        self._stop = True
+        if self._ser is not None:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
 
 
 def servo_goals(curls):
@@ -113,9 +196,13 @@ def main():
             c.write_goal_position(i, g)
         time.sleep(0.6)
 
+    fsr = FSRReader()
+    fsr_ok = fsr.start()
+
     period = 1.0 / LOOP_HZ
     ema = None
     last_goals = None
+    last_curls = {f: None for f in FINGER_SERVOS}    # for force-stop
     n = 0
     try:
         while True:
@@ -127,7 +214,24 @@ def main():
                 ema = cs if ema is None else (
                     CURL_ALPHA * cs + (1.0 - CURL_ALPHA) * ema
                 )
-                goals = servo_goals(ema)
+                # Whole-hand FSR force stop: if ANY finger's FSR is
+                # over the limit, none of the fingers may curl further
+                # this loop (they can still relax/open).
+                forces = fsr.latest() if fsr_ok else None
+                overload = forces is not None and max(forces) > FORCE_LIMIT
+                clipped = ema.copy()
+                for fname in FINGER_SERVOS:
+                    i = FINGER_ORDER.index(fname)
+                    prev = last_curls[fname]
+                    if prev is not None:
+                        # Rate-limit closing only; opening is free.
+                        cap = prev + MAX_CLOSE_STEP
+                        if clipped[i] > cap:
+                            clipped[i] = cap
+                        if overload:
+                            clipped[i] = min(clipped[i], prev)
+                    last_curls[fname] = clipped[i]
+                goals = servo_goals(clipped)
                 last_goals = goals
             else:
                 goals = last_goals      # hold (may be None before 1st msg)
@@ -135,6 +239,9 @@ def main():
             if goals is not None and args.live:
                 for i, g in goals.items():
                     c.write_goal_position(i, g)
+
+            if fsr_ok:
+                fsr.send_led(max(fsr.latest()) > FORCE_LIMIT)
 
             n += 1
             if n % int(LOOP_HZ) == 0:
@@ -146,8 +253,14 @@ def main():
                         for i in range(len(FINGER_ORDER))
                     )
                     stale = "  [STALE-HOLD]" if age > VR_STALE_S else ""
+                    if fsr_ok:
+                        f = fsr.latest()
+                        fs = (f"fsr T{f[0]} I{f[1]} M{f[2]} R{f[3]}"
+                              + ("  [STOP]" if max(f) > FORCE_LIMIT else ""))
+                    else:
+                        fs = "fsr off"
                     print(f"[hand] {raw}  trig={trig:.2f} "
-                          f"grip={grip:.2f}{stale}")
+                          f"grip={grip:.2f}  {fs}{stale}")
 
             dt = period - (time.time() - t0)
             if dt > 0:
@@ -168,6 +281,7 @@ def main():
             except Exception as e:
                 print(f"[hand] cleanup error: {e}")
         vr.shutdown()
+        fsr.shutdown()
 
 
 if __name__ == "__main__":
