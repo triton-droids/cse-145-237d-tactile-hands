@@ -138,15 +138,15 @@ def main():
 
             n += 1
             if n % int(LOOP_HZ) == 0:
-                if goals is None:
+                if curls is None:
                     print(f"[hand] waiting for finger data (age={age:.2f})")
                 else:
-                    shown = " ".join(
-                        f"{f}={ema[FINGER_ORDER.index(f)]:.2f}"
-                        for f in FINGER_SERVOS
+                    raw = " ".join(
+                        f"{FINGER_ORDER[i]}={curls[i]:.2f}"
+                        for i in range(len(FINGER_ORDER))
                     )
-                    stale = "" if age <= VR_STALE_S else "  [STALE-HOLD]"
-                    print(f"[hand] {shown}  trig={trig:.2f} "
+                    stale = "  [STALE-HOLD]" if age > VR_STALE_S else ""
+                    print(f"[hand] {raw}  trig={trig:.2f} "
                           f"grip={grip:.2f}{stale}")
 
             dt = period - (time.time() - t0)

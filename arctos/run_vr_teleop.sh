@@ -87,6 +87,10 @@ trap cleanup EXIT INT TERM
 
 cd "$HERE"
 
+# J1 motor board is dead on CAN — exclude it so connect()/encoder sync
+# doesn't time out. AXES in vr_ros_io.py also has J1 commented out.
+export ARCTOS_JOINTS="${ARCTOS_JOINTS:-2,3,4,5,6}"
+
 echo "[run] starting VR->ROS publisher…"
 "$PY" vr_controller_publisher.py & PUB_PID=$!
 sleep 2

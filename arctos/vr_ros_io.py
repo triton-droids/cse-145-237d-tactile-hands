@@ -106,34 +106,34 @@ YAW_FILTER = {"mincutoff": 1.2, "beta": 0.012, "dcutoff": 1.0}
 #   filter        One-Euro spec dict, or None for pass-through
 # ===========================================================================
 AXES = [
-    {
-        "joint":        1,
-        "source":       "yaw",
-        "scale":        0.25,
-        "invert":       True,
-        "kp":           6.0,
-        "max_travel":   45.0,
-        "max_rpm":      80,
-        "rpm_floor":    8,
-        "pos_deadband": 1.0,
-        "filter":       YAW_FILTER,
-    },
-    # --- J2 (shoulder) DISABLED ---------------------------------------
-    # Removed from AXES so the teleop sends it no commands at all.
-    # Re-enable by un-commenting this block.
+    # --- J1 (base yaw) DISABLED ---------------------------------------
+    # J1 motor board not responding on CAN (hardware). Disabled so
+    # connect()/sync_all_encoders() doesn't time out on it.
     # {
-    #     "joint":        2,
-    #     "source":       "y",
-    #     "scale":        240.0,
+    #     "joint":        1,
+    #     "source":       "yaw",
+    #     "scale":        0.25,
     #     "invert":       True,
     #     "kp":           6.0,
-    #     "max_travel":   1000.0,   # intentionally large: soft travel
-    #                               # clamp + runaway guard effectively off
-    #     "max_rpm":      240,      # 3x J1 cap (was the shared 80)
-    #     "rpm_floor":    45,
-    #     "pos_deadband": 2.0,
-    #     "filter":       None,
+    #     "max_travel":   45.0,
+    #     "max_rpm":      80,
+    #     "rpm_floor":    8,
+    #     "pos_deadband": 1.0,
+    #     "filter":       YAW_FILTER,
     # },
+    {
+        "joint":        2,
+        "source":       "y",
+        "scale":        240.0,
+        "invert":       True,
+        "kp":           6.0,
+        "max_travel":   1000.0,   # intentionally large: soft travel
+                                  # clamp + runaway guard effectively off
+        "max_rpm":      240,      # 3x J1 cap (was the shared 80)
+        "rpm_floor":    45,
+        "pos_deadband": 2.0,
+        "filter":       None,
+    },
     # --- J3 (elbow) DISABLED ------------------------------------------
     # Followed controller height like J2. Removed from AXES so the
     # teleop sends it no commands at all. Re-enable by un-commenting.

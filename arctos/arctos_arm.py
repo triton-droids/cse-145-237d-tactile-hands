@@ -106,6 +106,7 @@ _PORT_DENY_SUBSTRINGS = ("watchman", "valve", "vr radio")
 # USB-serial devices share the bus now (e.g. the AmazingHand servo
 # adapter, a QinHeng 1A86 chip), so auto-detect must deterministically
 # PREFER the CANable rather than grab whatever enumerates first.
+_CAN_DEBUG = os.environ.get("ARCTOS_CAN_DEBUG", "").lower() in ("1", "true", "yes")
 _CANABLE_VID = 0x16D0
 _PORT_PREFER_SUBSTRINGS = ("canable", "slcan", "cantact", "gs_usb")
 
@@ -238,6 +239,11 @@ class ArctosArm:
     def __init__(self, com_port: Optional[str] = None):
         self.com_port = com_port
         self.bus: Optional[can.Bus] = None
+        # Allow env override so a dead board (e.g. J1 hardware fault)
+        # doesn't make connect() time out on encoder sync.
+        env_j = os.environ.get("ARCTOS_JOINTS")
+        if env_j:
+            self.JOINTS = tuple(int(x) for x in env_j.split(",") if x.strip())
         self.current_angles: Dict[int, float] = {j: 0.0 for j in self.JOINTS}
         self._state_lock = threading.Lock()
         self._pending: Dict[Tuple[int, int], Future] = {}
@@ -342,7 +348,8 @@ class ArctosArm:
         msg = can.Message(
             arbitration_id=arb_id, data=payload, is_extended_id=False
         )
-        print(f"[TX] ID=0x{arb_id:03X} DATA=[{self._hex(payload)}]")
+        if _CAN_DEBUG:
+            print(f"[TX] ID=0x{arb_id:03X} DATA=[{self._hex(payload)}]")
         bus.send(msg)
 
     # ------------------------------------------------------------------
@@ -393,7 +400,8 @@ class ArctosArm:
 
             data = bytes(msg.data)
             arb_id = msg.arbitration_id
-            print(f"[RX] ID=0x{arb_id:03X} DATA=[{self._hex(data)}]")
+            if _CAN_DEBUG:
+                print(f"[RX] ID=0x{arb_id:03X} DATA=[{self._hex(data)}]")
 
             joint = arb_id - self.ARB_BASE
             if joint not in self.GEAR_RATIOS or len(data) < 2:
