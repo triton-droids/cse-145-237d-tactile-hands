@@ -7,7 +7,7 @@
   <meta name="title" content="Tactile Hands — Triton Droids (CSE 145/237D)">
   <meta name="description" content="A low-cost robotic hand prototype with FSR-based fingertip sensing for force-aware grasping, built for CSE 145/237D by Triton Droids at UC San Diego.">
   <meta name="keywords" content="robotic hand, tactile sensing, FSR, force-sensing resistor, ESP32, AmazingHand, grasping, CSE 145, CSE 237D, UCSD, Triton Droids">
-  <meta name="author" content="Bryce Hackel, Sidath, Thomas, Shree, Ali">
+  <meta name="author" content="Bryce Hackel, Ali El Lahib, Shree Venkatesh, Sidath Daham Wijesinghe, Thomas Nghiem">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#FAFAF7">
 
@@ -74,7 +74,7 @@
           and grasping without crushing.
         </p>
         <div class="hero__authors">
-          <span>Bryce Hackel<sup>*</sup></span><span>Sidath</span><span>Thomas</span><span>Shree</span><span>Ali</span>
+          <span>Bryce Hackel<sup>*</sup></span><span>Ali El Lahib</span><span>Shree Venkatesh</span><span>Sidath Daham Wijesinghe</span><span>Thomas Nghiem</span>
         </div>
         <div class="hero__meta">Triton Droids · <sup>*</sup>Project Lead</div>
         <div class="hero__cta">
@@ -357,23 +357,23 @@
 
         <ul class="team">
           <li>
-            <div class="team__name"><strong>Bryce</strong><span class="team__role">Lead · Electronics</span></div>
+            <div class="team__name"><strong>Bryce Hackel</strong><span class="team__role">Lead · Electronics</span></div>
             <p>Project lead. Designed the prototype PCB (ESP32, FSR voltage dividers, vertical headers), wrote firmware for ADC sampling and USB serial streaming, printed the calibration weights, and coordinated the schedule and milestones.</p>
           </li>
           <li>
-            <div class="team__name"><strong>Shree</strong><span class="team__role">Calibration</span></div>
+            <div class="team__name"><strong>Shree Venkatesh</strong><span class="team__role">Calibration</span></div>
             <p>Developed and documented the calibration procedure, fit the calibration curve, validated ≤1 N error across all four fingers, and characterized repeatability and drift.</p>
           </li>
           <li>
-            <div class="team__name"><strong>Ali</strong><span class="team__role">Simulation</span></div>
+            <div class="team__name"><strong>Ali El Lahib</strong><span class="team__role">Simulation</span></div>
             <p>Brought up the AmazingHand in MuJoCo / Isaac Sim / PyBullet, verified finger kinematics, and prepared the sim-to-real pipeline. Prior work at the Hao Su Lab (ICLR 2026) on robotic-hand simulation directly informed this role.</p>
           </li>
           <li>
-            <div class="team__name"><strong>Sidath</strong><span class="team__role">VR Teleop</span></div>
+            <div class="team__name"><strong>Sidath Daham Wijesinghe</strong><span class="team__role">VR Teleop</span></div>
             <p>Built the Quest 2 APK from <code>unity_ros_teleoperation</code> and established the ROS link, then supported prototyping, actuation, testing, and integration.</p>
           </li>
           <li>
-            <div class="team__name"><strong>Thomas</strong><span class="team__role">Vision</span></div>
+            <div class="team__name"><strong>Thomas Nghiem</strong><span class="team__role">Vision</span></div>
             <p>Built the vision-based finger pose estimator — iPhone app with a webcam fallback — outputting normalized [0.0–1.0] curl per finger by mapping joint angles down to a single per-finger value.</p>
           </li>
         </ul>
@@ -435,7 +435,7 @@
           <button class="bibtex__copy" type="button" data-copy>Copy</button>
           <pre><code id="bibtex-code">@misc{tritondroids2026tactilehands,
   title  = {Tactile Hands: A Low-Cost Robotic Hand with Force-Aware Grasping},
-  author = {Hackel, Bryce and Sidath and Thomas and Shree and Ali},
+  author = {Hackel, Bryce and El Lahib, Ali and Venkatesh, Shree and Wijesinghe, Sidath Daham and Nghiem, Thomas},
   year   = {2026},
   note   = {CSE 145/237D, UC San Diego},
   url    = {https://github.com/triton-droids/cse-145-237d-tactile-hands}
