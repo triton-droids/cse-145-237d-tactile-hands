@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <meta name="title" content="Tactile Hands — Triton Droids (CSE 145/237D)">
-  <meta name="description" content="A low-cost robotic hand prototype with FSR-based fingertip sensing for force-aware grasping, built for CSE 145/237D by Triton Droids at UC San Diego.">
-  <meta name="keywords" content="robotic hand, tactile sensing, FSR, force-sensing resistor, ESP32, AmazingHand, grasping, CSE 145, CSE 237D, UCSD, Triton Droids">
+  <meta name="description" content="A sub-$200 robotic hand with FSR-based fingertip sensing for force-aware grasping, extended onto a teleoperated ARCTOS arm. Built for CSE 145/237D by Triton Droids at UC San Diego.">
+  <meta name="keywords" content="robotic hand, tactile sensing, FSR, force-sensing resistor, ESP32, AmazingHand, force-aware grasping, teleoperation, ARCTOS arm, Valve Index, MuJoCo, YOLO, CSE 145, CSE 237D, UCSD, Triton Droids">
   <meta name="author" content="Bryce Hackel, Ali El Lahib, Shree Venkatesh, Sidath Daham Wijesinghe, Thomas Nghiem">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#FAFAF7">
@@ -14,7 +14,7 @@
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="Triton Droids — UC San Diego">
   <meta property="og:title" content="Tactile Hands">
-  <meta property="og:description" content="Low-cost robotic hand with calibrated fingertip force sensing for force-aware grasping.">
+  <meta property="og:description" content="Sub-$200 robotic hand with calibrated fingertip force sensing for force-aware grasping, extended onto a teleoperated arm.">
 
   <title>Tactile Hands — Triton Droids · CSE 145/237D</title>
 
@@ -70,8 +70,8 @@
         <div class="hero__eyebrow">CSE 145 / 237D · UC San Diego · 2026</div>
         <h1 class="hero__title">Tactile <em>Hands</em></h1>
         <p class="hero__sub">
-          A low-cost robotic hand with FSR-based fingertip sensing — calibrated to within 1&nbsp;N
-          and grasping without crushing.
+          A sub-$200 robotic hand with FSR-based fingertip sensing — calibrated to within 1&nbsp;N,
+          grasping without crushing, and extended onto a teleoperated arm.
         </p>
         <div class="hero__authors">
           <span>Bryce Hackel<sup>*</sup></span><span>Ali El Lahib</span><span>Shree Venkatesh</span><span>Sidath Daham Wijesinghe</span><span>Thomas Nghiem</span>
@@ -96,7 +96,7 @@
           </video>
         </div>
         <p class="teaser__caption">
-          Force-aware grasping demonstration — FSR readings closing the loop on grip strength.
+          Force-aware grasping on the teleoperated arm — fingertip FSRs close the loop on grip strength, lifting the object without crushing it.
         </p>
       </div>
     </section>
@@ -107,18 +107,25 @@
         <div class="section__label">01 — Overview</div>
         <h2 class="section__title">A robotic hand that knows when to stop squeezing.</h2>
         <p class="section__lede">
-          Force-sensing resistors on every fingertip, calibrated to within 1&nbsp;N, with a
-          control loop that modulates grip in real time to grasp without crushing.
+          Robots without sensing are dangerous. Fingertip force-sensing gives a hand
+          real-time grip awareness — yet no open-source hand under ~$200 has it. We built one.
         </p>
         <div class="prose">
           <p>
-            We built a low-cost robotic hand prototype with force-sensing resistors (FSRs)
-            on the fingertips of all four fingers, capable of grasping and releasing simple
+            We built a sub-$200 robotic hand prototype with force-sensing resistors (FSRs)
+            on the fingertips of all four fingers, capable of grasping and releasing fragile
             objects while actively avoiding crushing them. The sensors were calibrated to
-            within 1&nbsp;N. Beyond the core demo, we explored vision-based finger pose
-            estimation, VR teleoperation, and a sim-to-real pipeline. By the end of the
-            quarter, the prototype performed basic grasping tasks on a small set of test
-            objects, with the force-feedback loop actively modulating grip strength.
+            within 1&nbsp;N, and a real-time control loop modulates grip strength from the
+            live fingertip readings. The hand grasps a paper cup and stops the instant
+            measured force crosses a safe threshold.
+          </p>
+          <p>
+            On top of that core MVP, we layered vision-based finger-pose mirroring, VR
+            teleoperation, and a MuJoCo simulation — then mounted the hand onto a
+            teleoperated ARCTOS arm with YOLO-based object recognition. The sub-$200 figure
+            covers the hand itself driven by a laptop camera; the Valve Index controllers and
+            arm are stretch additions on top. The result is a reusable foundation for
+            low-cost dexterous control.
           </p>
         </div>
       </div>
@@ -132,20 +139,20 @@
         <div class="carousel">
           <div class="carousel__track">
             <figure class="carousel__item">
-              <img src="static/images/carousel1.jpg" alt="Hand prototype" loading="lazy">
-              <figcaption class="carousel__caption">01 / hand photo — placeholder</figcaption>
+              <img src="static/images/build_hand.jpg" alt="Four-fingered hand prototype with FSRs on the fingertips" loading="lazy">
+              <figcaption class="carousel__caption">01 / the hand — FSRs on all four fingertips</figcaption>
             </figure>
             <figure class="carousel__item">
-              <img src="static/images/carousel2.jpg" alt="FSR wiring" loading="lazy">
-              <figcaption class="carousel__caption">02 / FSR mount &amp; wiring — placeholder</figcaption>
+              <img src="static/images/calibration.png" alt="Power-law force-sensor calibration curve" loading="lazy">
+              <figcaption class="carousel__caption">02 / calibration — power-law fit, 25.7 g max error</figcaption>
             </figure>
             <figure class="carousel__item">
-              <img src="static/images/carousel3.jpg" alt="Calibration plot" loading="lazy">
-              <figcaption class="carousel__caption">03 / calibration curve — placeholder</figcaption>
+              <img src="static/images/arctos_arm.jpg" alt="The hand mounted on the ARCTOS robotic arm" loading="lazy">
+              <figcaption class="carousel__caption">03 / mounted on the ARCTOS arm</figcaption>
             </figure>
             <figure class="carousel__item">
-              <img src="static/images/carousel4.jpg" alt="Simulation screenshot" loading="lazy">
-              <figcaption class="carousel__caption">04 / simulation — placeholder</figcaption>
+              <img src="static/images/yolo_dataset.png" alt="Custom-annotated object dataset for YOLO" loading="lazy">
+              <figcaption class="carousel__caption">04 / custom-annotated dataset for YOLO26</figcaption>
             </figure>
           </div>
         </div>
@@ -194,8 +201,8 @@
             <div class="phase__num">Phase<strong>04</strong></div>
             <div class="phase__body">
               <h4>Reach goals and documentation</h4>
-              <div class="phase__weeks">Weeks 7–10 · in progress</div>
-              <p>With the MVP delivered, we are now pursuing the stretch goals: VR teleoperation via Quest 2, vision-based finger pose estimation, sim-to-real object rotation, and mounting the hand on a robotic arm. The final report, video, and documentation will close out the quarter.</p>
+              <div class="phase__weeks">Weeks 7–10 · complete</div>
+              <p>With the MVP delivered, we pursued the stretch goals: vision-based finger-pose mirroring (MediaPipe), VR teleoperation (after switching from the Quest 2 to Valve Index controllers), an in-hand cube-rotation policy trained in MuJoCo, and mounting the hand onto a teleoperated ARCTOS arm with YOLO-based object recognition. End-to-end teleop works. Sim-to-real transfer to hardware and finger adduction/abduction control remained out of scope.</p>
             </div>
           </article>
         </div>
@@ -215,8 +222,8 @@
 
         <ol class="cards cards--counted">
           <li><strong>Operational hand prototype with tactile sensing</strong> Fingers open and close in a controlled way; FSRs are mounted on each fingertip and connected to the prototype board; the ESP32 reads them via voltage dividers and streams over USB; structure is mechanically stable.</li>
-          <li><strong>Calibrated force sensing to within 1 N</strong> 3D-printed weights map raw ADC to Newtons; non-linear curve fit with a polynomial; procedure is documented and repeatable across all fingers.</li>
-          <li><strong>Force-aware grasping</strong> The hand grasps at least one simple object while monitoring fingertip force in real time and adjusts grip strength to avoid crushing it.</li>
+          <li><strong>Calibrated force sensing to within 1 N</strong> Stacked 3D-printed weights on a PLA plate map raw ADC to force; a power-law fit (F = 1.07e-9·r<sup>3.16</sup>) holds 17.1&nbsp;g RMSE and 25.7&nbsp;g max error over seven loading points — well inside the 1&nbsp;N target. The procedure is documented and repeatable.</li>
+          <li><strong>Force-aware grasping</strong> The hand grasps at least one simple object while monitoring fingertip force in real time; when force crosses the safe threshold a red status LED lights and the grip stops closing, so the object is held without being crushed.</li>
           <li><strong>Repeatable test setup</strong> Force-aware behavior is shown multiple times; results are documented with video, force logs, and test notes.</li>
         </ol>
       </div>
@@ -228,7 +235,9 @@
         <div class="section__label">Final talk</div>
         <h2 class="section__title">Project presentation.</h2>
         <div class="video-frame">
-          <iframe src="https://www.youtube.com/embed/JkaxUblCGz0" title="Project presentation" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+          <video controls playsinline preload="metadata">
+            <source src="static/videos/presentation.mp4" type="video/mp4">
+          </video>
         </div>
       </div>
     </section>
@@ -237,14 +246,19 @@
     <section class="section">
       <div class="wrap">
         <div class="section__label">04 — Reach</div>
-        <h2 class="section__title">Stretch goals.</h2>
+        <h2 class="section__title">Beyond the MVP.</h2>
+        <p class="section__lede">
+          Each reach goal was owned by one team member and developed in parallel, only
+          integrating after the MVP was validated.
+        </p>
 
         <ol class="cards cards--counted">
-          <li><strong>VR teleoperation</strong> Quest 2 hand tracking drives the robotic hand.</li>
-          <li><strong>Vision-based finger pose</strong> iPhone app (preferred) or laptop webcam fallback.</li>
-          <li><strong>Sim-to-real object rotation</strong> In-hand rotation in simulation, transferred to real hardware.</li>
-          <li><strong>Robotic arm integration</strong> Mount the hand on an arm for hard-coded pick-and-place.</li>
-          <li><strong>VR arm teleoperation</strong> End-effector control for teleoperated pick-and-place via VR.</li>
+          <li><strong>Vision-based finger-pose mirroring · done</strong> A webcam MediaPipe Hands pipeline maps the user's per-finger curl to servo commands, and the robotic hand mirrors the gesture in real time.</li>
+          <li><strong>VR pose teleoperation · done</strong> We switched from the Quest 2 to Valve Index controllers — far easier to set up in Python — and stream controller position and orientation over ROS&nbsp;2.</li>
+          <li><strong>Hand simulation in MuJoCo · done</strong> The AmazingHand was brought up in MuJoCo with verified finger kinematics and curl poses, and trained on an in-hand cube-rotation task.</li>
+          <li><strong>Teleoperated ARCTOS arm · done</strong> The hand was mounted onto an ARCTOS arm and driven end-to-end over VR teleop; we continue refining frame calibration, smoothing, and IK toward pick-and-place.</li>
+          <li><strong>Multi-object recognition · done</strong> A YOLO26 model fine-tuned on our custom-annotated dataset recognizes objects — the goal being to map each detected object to its own ideal force threshold.</li>
+          <li><strong>Sim-to-real &amp; finger ab/adduction · not done</strong> Transferring the in-hand rotation policy to hardware and adding finger adduction/abduction control remained out of scope this quarter.</li>
         </ol>
       </div>
     </section>
@@ -257,22 +271,40 @@
         <div class="carousel">
           <div class="carousel__track">
             <figure class="carousel__item">
-              <video controls muted loop playsinline preload="metadata">
-                <source src="static/videos/carousel1.mp4" type="video/mp4">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_force_grasp.mp4" type="video/mp4">
               </video>
-              <figcaption class="carousel__caption">01 / demo — placeholder</figcaption>
+              <figcaption class="carousel__caption">01 / force-aware grasp — the red LED lights when fingertip force hits the safe threshold</figcaption>
             </figure>
             <figure class="carousel__item">
-              <video controls muted loop playsinline preload="metadata">
-                <source src="static/videos/carousel2.mp4" type="video/mp4">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_hand_pose.mp4" type="video/mp4">
               </video>
-              <figcaption class="carousel__caption">02 / demo — placeholder</figcaption>
+              <figcaption class="carousel__caption">02 / hand-pose mirroring — MediaPipe maps the user's finger curl to the hand</figcaption>
             </figure>
             <figure class="carousel__item">
-              <video controls muted loop playsinline preload="metadata">
-                <source src="static/videos/carousel3.mp4" type="video/mp4">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_vr_arm.mp4" type="video/mp4">
               </video>
-              <figcaption class="carousel__caption">03 / demo — placeholder</figcaption>
+              <figcaption class="carousel__caption">03 / VR teleop — a Valve Index controller drives the ARCTOS arm</figcaption>
+            </figure>
+            <figure class="carousel__item">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_teleop_grasp.mp4" type="video/mp4">
+              </video>
+              <figcaption class="carousel__caption">04 / teleop grasp — with force sensing on, the arm lifts without crushing</figcaption>
+            </figure>
+            <figure class="carousel__item">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_compare.mp4" type="video/mp4">
+              </video>
+              <figcaption class="carousel__caption">05 / side by side — without sensing the arm crushes the cup; with it, it doesn't</figcaption>
+            </figure>
+            <figure class="carousel__item">
+              <video autoplay controls muted loop playsinline preload="metadata">
+                <source src="static/videos/demo_sim_rotation.mp4" type="video/mp4">
+              </video>
+              <figcaption class="carousel__caption">06 / simulation — in-hand cube rotation trained in MuJoCo</figcaption>
             </figure>
           </div>
         </div>
@@ -290,22 +322,23 @@
           <ul class="spec-list">
             <li><strong>ESP32-S3 DevKit (WROOM-1)</strong> — 12-bit ADC, native USB, GPIO for four FSR channels and servo control.</li>
             <li><strong>Four Pololu FSR #2728</strong> mounted to the AmazingHand fingertips.</li>
-            <li><strong>AmazingHand mechanical platform</strong> with four Feetech SCS0009 micro servos.</li>
+            <li><strong>AmazingHand mechanical platform</strong> with Feetech SCS0009 micro servos — two per finger.</li>
+            <li><strong>ARCTOS robotic arm</strong> — the hand mounts on the end-effector of the 3D-printed ARCTOS arm for teleoperated pick-and-place.</li>
             <li><strong>Power</strong> — 2S LiPo (7.4V) stepped down to 5V via buck converter, Schottky diode to block USB backfeed.</li>
-            <li><strong>Prototype board</strong> — solderable breadboard on the back of the hand, hosting the ESP32-S3, four 22kΩ voltage dividers, 100nF/10µF decoupling near the ADC, and 0.1" vertical headers for FSR Dupont connections.</li>
-            <li><strong>Reference loads</strong> — 3D-printed PLA calibration weights at 0.5 N, 1 N, 2 N.</li>
-            <li><strong>Reference objects</strong> — a plastic cup plus simple objects selected during testing.</li>
+            <li><strong>Prototype board</strong> — solderable breadboard hosting the ESP32-S3, four 22kΩ voltage dividers, 100nF/10µF decoupling near the ADC, and 0.1" vertical headers for FSR Dupont leads, housed in a 3D-printed enclosure with status LEDs on the back of the hand.</li>
+            <li><strong>Calibration weights</strong> — stacked 3D-printed PLA weights held on a printed plate for seven-point loading.</li>
+            <li><strong>Reference object</strong> — a paper cup, plus additional simple objects selected during testing.</li>
           </ul>
         </div>
 
         <div class="spec-group">
           <div class="spec-group__title">Software</div>
           <ul class="spec-list">
-            <li><strong>Firmware</strong> — Arduino core for ESP32, ADC sampling at 100 Hz, USB CDC at 115200 baud, CSV (timestamp + four forces in Newtons).</li>
-            <li><strong>Simulation</strong> — MuJoCo or Isaac Sim.</li>
-            <li><strong>Host</strong> — ROS 2 on Ubuntu; serial bridge node publishes <code>/tactile/forces</code>, subscribes to <code>/servo/commands</code>.</li>
-            <li><strong>VR</strong> — Unity 2022.3 LTS, building the Quest 2 APK from <code>leggedrobotics/unity_ros_teleoperation</code>.</li>
-            <li><strong>Vision</strong> — MediaPipe Hands (webcam fallback), ARKit HandPose (iPhone).</li>
+            <li><strong>Firmware</strong> — Arduino core for ESP32, ADC sampling at 100 Hz, USB CDC at 115200 baud, timestamped force streaming.</li>
+            <li><strong>Simulation</strong> — MuJoCo; AmazingHand model with verified finger kinematics, trained on an in-hand cube-rotation task.</li>
+            <li><strong>Host</strong> — ROS 2 on Ubuntu; serial bridge node streams fingertip forces and relays servo commands.</li>
+            <li><strong>VR</strong> — Valve Index controllers via OpenVR / <code>pyopenvr</code>, streaming controller pose over ROS 2 (chosen over the Quest 2 APK for easier Python integration and native per-finger tracking).</li>
+            <li><strong>Vision</strong> — MediaPipe Hands + OpenCV (webcam) for finger-pose mirroring; YOLO26 fine-tuned on a custom-annotated dataset for multi-object recognition, with the aim of mapping each detected object to its own force threshold.</li>
           </ul>
         </div>
 
@@ -326,9 +359,9 @@
         <div class="section__label">06 — Testing</div>
         <h2 class="section__title">How we tested.</h2>
         <ul class="spec-list">
-          <li><strong>Calibration rig</strong> — a fixture held each sensor flat and level; weights (0.5 N, 1 N, 2 N, 4 N) were stacked sequentially with ADC logged over serial. Each sensor was cycled five times to characterize repeatability.</li>
-          <li><strong>Reference test objects</strong> — a cup and additional simple objects, each with a known crush threshold defining grasp pass/fail.</li>
-          <li><strong>Success criteria, met</strong> — error under 1 N across the force range; 5/5 consecutive grasp-release cycles per object without exceeding the crush threshold.</li>
+          <li><strong>Calibration rig</strong> — a 3D-printed plate held stacked PLA weights over the sensor while the ESP32 logged ADC over serial. Seven loading points were fit with a power law (F = 1.07e-9·r<sup>3.16</sup>), giving 17.1&nbsp;g RMSE and 25.7&nbsp;g max error.</li>
+          <li><strong>Reference test objects</strong> — a paper cup and additional simple objects, each with a crush threshold defining grasp pass/fail.</li>
+          <li><strong>Success criteria, met</strong> — error under 1 N across the force range; the hand repeatedly grasped and released the cup, stopping the moment fingertip force crossed the safe threshold.</li>
         </ul>
       </div>
     </section>
@@ -340,9 +373,11 @@
         <h2 class="section__title">What we ran into.</h2>
 
         <ol class="cards cards--counted">
-          <li><strong>FSR accuracy was hard to hit within 1 N</strong> FSRs are nonlinear and drift with temperature and load cycles. We hit the target by calibrating against 3D-printed weights with a polynomial fit and characterizing repeatability across multiple load cycles.</li>
-          <li><strong>The PCB and wiring injected noise early on</strong> Analog FSR signals turned out to be sensitive to wiring length, grounding, and Vref stability. We fixed it by sizing the dividers properly, keeping analog traces short, and adding decoupling caps near the ADC.</li>
-          <li><strong>The hand had limited grip force</strong> Out of the box the AmazingHand servos struggled with anything bulky. We worked with light, simple objects and tuned the grasp geometry around what the platform could reliably hold.</li>
+          <li><strong>FSR accuracy was hard to hit within 1 N</strong> FSRs are nonlinear and drift with temperature and load cycles. We hit the target by calibrating against stacked 3D-printed weights with a power-law fit and characterizing repeatability across multiple load cycles.</li>
+          <li><strong>The board and wiring injected noise early on</strong> Analog FSR signals turned out to be sensitive to wiring length, grounding, and Vref stability. We fixed it by sizing the dividers properly, keeping analog traces short, and adding decoupling caps near the ADC.</li>
+          <li><strong>Force sensing had latency</strong> The grasp loop reacts to measured force, not anticipated force, so a fast close can overshoot the safe threshold. We mitigated it by moving slowly during the closing phase.</li>
+          <li><strong>The hand had low reachability</strong> The AmazingHand's reach and grip envelope are limited, so it struggled with smaller objects. We tuned the demos around larger objects the platform could reliably wrap around, like a paper cup, which were much easier to grasp.</li>
+          <li><strong>The Quest 2 was hard to integrate</strong> The Quest 2 APK pipeline was awkward to drive from Python. We switched to Valve Index controllers, which set up far more easily via OpenVR and expose native per-finger tracking.</li>
           <li><strong>Reach goals spanned multiple subsystems</strong> We split ownership one-per-goal, developed them in parallel, and integrated only after the MVP had been validated — so a stalled reach goal never blocked the core demo.</li>
           <li><strong>Time and hardware were tight</strong> We reused available parts wherever possible, kept the MVP as the gating priority, and refused non-essential dependencies until after week six.</li>
         </ol>
@@ -366,15 +401,15 @@
           </li>
           <li>
             <div class="team__name"><strong>Ali El Lahib</strong><span class="team__role">Simulation</span></div>
-            <p>Brought up the AmazingHand in MuJoCo / Isaac Sim / PyBullet, verified finger kinematics, and prepared the sim-to-real pipeline. Prior work at the Hao Su Lab (ICLR 2026) on robotic-hand simulation directly informed this role.</p>
+            <p>Brought up the AmazingHand in MuJoCo, verified finger kinematics and curl poses, and trained an in-hand cube-rotation task in simulation (hardware transfer remains future work). Prior work at the Hao Su Lab (ICLR 2026) on robotic-hand simulation directly informed this role.</p>
           </li>
           <li>
             <div class="team__name"><strong>Sidath Daham Wijesinghe</strong><span class="team__role">VR Teleop</span></div>
-            <p>Built the Quest 2 APK from <code>unity_ros_teleoperation</code> and established the ROS link, then supported prototyping, actuation, testing, and integration.</p>
+            <p>Built the VR teleoperation pipeline — first a Quest 2 APK, then switching to Valve Index controllers for easier Python integration — streaming controller pose over ROS 2 to drive the ARCTOS arm end-to-end, and supported prototyping, actuation, and integration.</p>
           </li>
           <li>
             <div class="team__name"><strong>Thomas Nghiem</strong><span class="team__role">Vision</span></div>
-            <p>Built the vision-based finger pose estimator — iPhone app with a webcam fallback — outputting normalized [0.0–1.0] curl per finger by mapping joint angles down to a single per-finger value.</p>
+            <p>Built the webcam-based finger-pose estimator with MediaPipe Hands and OpenCV, computing per-finger curl from the tracked joints and mapping it to servo commands so the hand mirrors the user's gesture.</p>
           </li>
         </ul>
       </div>
@@ -404,10 +439,10 @@
               <tr><td>Simulation bring-up (Ali)</td><td></td><td class="x"></td><td class="x"></td><td class="x"></td><td></td><td></td><td></td><td></td><td></td></tr>
               <tr><td>Testing &amp; force-aware grasping</td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td></td><td></td><td></td><td></td></tr>
               <tr><td>MVP completion &amp; validation</td><td></td><td></td><td></td><td></td><td class="x"></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td>Quest 2 VR teleop APK (Sidath)</td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td class="x"></td><td></td></tr>
-              <tr><td>iPhone / webcam finger pose (Thomas)</td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td class="x"></td><td></td></tr>
-              <tr><td>Sim-to-real transfer (Ali)</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td></td></tr>
-              <tr><td>Arm integration (if time)</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td></tr>
+              <tr><td>VR teleop — Quest 2 → Valve Index (Sidath)</td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td class="x"></td><td></td></tr>
+              <tr><td>Webcam finger pose (Thomas)</td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td class="x"></td><td></td></tr>
+              <tr><td>In-hand cube rotation in sim (Ali)</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td><td></td></tr>
+              <tr><td>ARCTOS arm teleop integration (Sidath)</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td></tr>
               <tr><td>Final refinement &amp; documentation</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td class="x"></td></tr>
             </tbody>
           </table>
@@ -415,13 +450,17 @@
       </div>
     </section>
 
-    <!-- Poster -->
+    <!-- Report -->
     <section class="section">
       <div class="wrap">
-        <div class="section__label">10 — Poster</div>
-        <h2 class="section__title">Project poster.</h2>
+        <div class="section__label">10 — Report</div>
+        <h2 class="section__title">Milestone report.</h2>
+        <p class="section__lede">
+          The CSE 237D milestone report — MVP completion status, calibration results, and the
+          rest-of-quarter plan. <a href="static/pdfs/milestone-report.pdf" target="_blank" rel="noopener">Open the PDF</a>.
+        </p>
         <div class="poster">
-          <iframe src="static/pdfs/sample.pdf" title="Project poster"></iframe>
+          <iframe src="static/pdfs/milestone-report.pdf" title="Milestone report"></iframe>
         </div>
       </div>
     </section>
