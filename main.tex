@@ -83,10 +83,9 @@ calibration, teleoperation, ROS~2, low-cost robotics}
 %=====================================================================
 \section{Introduction}
 %=====================================================================
-Manipulation is one of the central unsolved problems in robotics, and the
-hand is where it is decided. A robot that can move its arm precisely but cannot
-tell how firmly it is gripping an object is fundamentally unsafe: it will crush
-a paper cup, an egg, or a fruit just as readily as it picks up a steel block.
+A robot arm can be precise to the millimeter and still be dangerous, because
+position tells it nothing about force. A hand that cannot feel how hard it is
+gripping will crush a paper cup as readily as it lifts a steel block.
 Humans avoid this through a dense array of tactile receptors in the fingertips
 that report contact force in real time and let us modulate our grip
 unconsciously. Bringing the same capability to robots, fingertip force
@@ -96,7 +95,7 @@ sensing tightly coupled to the grip controller, is what separates a hand that
 High-end research hands such as the Shadow Dexterous Hand or sensorized hands
 built around GelSight~\cite{yuan2017gelsight} and DIGIT~\cite{lambeta2020digit}
 tactile sensors demonstrate the value of touch, but they cost thousands of
-dollars and are out of reach for most students, hobbyists, and small labs.
+dollars and are out of reach for most students and small labs.
 Low-cost open-source hands have begun to close this gap on the mechanical side:
 the LEAP Hand~\cite{shaw2023leap} and the AmazingHand~\cite{pollen2025amazinghand}
 are anthropomorphic, 3D-printable, and affordable. However, these affordable
@@ -114,11 +113,11 @@ a single research fingertip but prohibitive across four fingers on a student bud
 Force-sensing resistors (FSRs) sit at the opposite extreme: a few dollars each, a
 single analog channel per sensor, and no per-finger compute. Their drawback is
 signal quality: FSRs are nonlinear, hysteretic, and vary unit to unit, so a raw
-reading is not a force. Our central design bet is that this drawback is an
-engineering problem rather than a fundamental one: with a controlled calibration
-procedure and a simple per-sensor model, inexpensive FSRs can be made accurate
-enough (better than 1~N) to close a useful safety loop, which is all that
-grasping a fragile object without crushing it actually requires.
+reading is not a force. We treated this as an engineering problem rather than a
+fundamental limit. With a controlled calibration procedure and a simple
+per-sensor model, inexpensive FSRs can be made accurate enough (better than
+1~N) to close a useful safety loop, which is all that grasping a fragile object
+without crushing it actually requires.
 
 We present \textbf{Tactile Hands}, a four-fingered robotic hand built on the
 open-source AmazingHand mechanical platform and augmented with a fingertip
@@ -133,7 +132,7 @@ collapsing it. The complete bill of materials remains under \$200. That figure
 covers the hand itself driven by a laptop webcam; the Valve Index controllers
 and ARCTOS arm are stretch additions on top.
 
-Two design decisions make the system more than the sum of inexpensive parts.
+Two design choices matter more than the parts list.
 First, all sensing and actuation are mediated by a single ROS~2 interface:
 calibrated forces are published on one topic and servo targets are read from
 another, so the grasp controller never talks to hardware directly and any input
