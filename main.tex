@@ -71,8 +71,8 @@ dividers and streams calibrated forces over USB to a ROS~2 host, where a
 force-aware controller halts finger closure once a safe force threshold is
 reached. Calibration achieves better-than-1~N accuracy. Mounted on an
 open-source arm and teleoperated in VR, the same controller grasps a thin-walled
-cup without crushing it---where a force-blind grasp collapses it---a low-cost
-foundation for tactile dexterous manipulation.
+cup without crushing it, where a force-blind grasp collapses it. The result is a
+low-cost foundation for tactile dexterous manipulation.
 \end{abstract}
 
 \keywords{tactile sensing, force-sensing resistors, robotic hand, grasping,
@@ -89,8 +89,8 @@ tell how firmly it is gripping an object is fundamentally unsafe: it will crush
 a paper cup, an egg, or a fruit just as readily as it picks up a steel block.
 Humans avoid this through a dense array of tactile receptors in the fingertips
 that report contact force in real time and let us modulate our grip
-unconsciously. Bringing the same capability to robots---fingertip force
-sensing tightly coupled to the grip controller---is what separates a hand that
+unconsciously. Bringing the same capability to robots, fingertip force
+sensing tightly coupled to the grip controller, is what separates a hand that
 ``closes until it stops'' from a hand that ``closes until it feels enough.''
 
 High-end research hands such as the Shadow Dexterous Hand or sensorized hands
@@ -109,11 +109,11 @@ Why is this capability missing at low cost? The sensors that make grip force
 legible to a robot tend to be expensive. Vision-based tactile sensors such as
 GelSight~\cite{yuan2017gelsight} and DIGIT~\cite{lambeta2020digit} embed a camera
 and illumination behind a deformable gel and recover rich contact geometry, but
-each fingertip then needs its own camera and per-frame computation---workable for
-a single research fingertip, prohibitive across four fingers on a student budget.
+each fingertip then needs its own camera and per-frame computation, workable for
+a single research fingertip but prohibitive across four fingers on a student budget.
 Force-sensing resistors (FSRs) sit at the opposite extreme: a few dollars each, a
 single analog channel per sensor, and no per-finger compute. Their drawback is
-signal quality---FSRs are nonlinear, hysteretic, and vary unit to unit, so a raw
+signal quality: FSRs are nonlinear, hysteretic, and vary unit to unit, so a raw
 reading is not a force. Our central design bet is that this drawback is an
 engineering problem rather than a fundamental one: with a controlled calibration
 procedure and a simple per-sensor model, inexpensive FSRs can be made accurate
@@ -129,24 +129,23 @@ calibrated power-law model, and streams the values over USB to a ROS~2 host. A
 force-aware grasp controller continuously compares each fingertip force against
 a safe threshold and stops closing a finger the moment that threshold is
 crossed, allowing the hand to wrap a thin-walled paper cup and hold it without
-collapsing it. The complete bill of materials remains under \$200---a figure
-that covers the hand itself driven by a laptop webcam; the Valve Index
-controllers and ARCTOS arm are stretch additions on top.
+collapsing it. The complete bill of materials remains under \$200. That figure
+covers the hand itself driven by a laptop webcam; the Valve Index controllers
+and ARCTOS arm are stretch additions on top.
 
 Two design decisions make the system more than the sum of inexpensive parts.
 First, all sensing and actuation are mediated by a single ROS~2 interface:
 calibrated forces are published on one topic and servo targets are read from
 another, so the grasp controller never talks to hardware directly and any input
-source---a fixed grasp trajectory, a webcam, or a VR controller---can drive the
+source (a fixed grasp trajectory, a webcam, or a VR controller) can drive the
 hand through the same contract. This let five subsystems (electronics/firmware,
 calibration, simulation, vision, and VR) be built and tested in parallel against
 a stable interface rather than serialized one behind another. Second, the
 force-aware controller is deliberately minimal: a per-finger threshold that
 freezes a finger the instant its measured force crosses a safe limit. We show
-that this minimal loop, running on calibrated low-cost sensors, is enough to turn
-a hand that ``closes until it stops'' into one that ``closes until it feels
-enough''---and, importantly, that the same guarantee keeps holding once the hand
-is mounted on a teleoperated arm and driven by a human.
+that this minimal loop, running on calibrated low-cost sensors, is enough to make
+the hand stop squeezing at a safe force, and that the same guarantee keeps
+holding once the hand is mounted on a teleoperated arm and driven by a human.
 
 Beyond the core force-sensing minimum viable product (MVP), we built three
 input and simulation extensions that share the same ROS~2 backbone: a
@@ -155,9 +154,9 @@ the hand, a physics simulation of the AmazingHand for kinematics validation and
 future sim-to-real work, and a virtual-reality (VR) teleoperation pipeline that
 streams 6-DoF controller pose into ROS~2. Most recently, we mounted the hand on
 an open-source ARCTOS robotic arm~\cite{arctos2024} and teleoperated its
-end-effector from VR controllers. Crucially, the force-aware controller keeps
+end-effector from VR controllers. The force-aware controller keeps
 running while a human drives the arm: under VR teleoperation the hand grasps a
-thin-walled cup and halts at the safe limit, whereas the \emph{identical}
+thin-walled cup and halts at the safe limit, whereas the identical
 teleoperated motion with force feedback disabled buckles the cup wall. We
 further added vision-guided, multi-object grip selection: a fine-tuned YOLO26
 object detector recognizes the target object in a webcam image and selects an
@@ -209,7 +208,7 @@ and 3D-printed parts, and it has become a popular platform for robot learning.
 The AmazingHand~\cite{pollen2025amazinghand} pushes cost down further with a
 fully 3D-printed, tendon- and linkage-driven design powered by small serial-bus
 servos; we adopt it as our mechanical base. These platforms prioritize low cost
-and reproducibility but, critically, ship without fingertip force sensing. Our
+and reproducibility, but they ship without fingertip force sensing. Our
 work keeps their affordability while adding the missing tactile channel.
 
 \paragraph{Tactile sensing technologies.}
@@ -217,7 +216,7 @@ Tactile sensing for robots spans a wide design space, surveyed by Dahiya et
 al.~\cite{dahiya2010tactile}. High-resolution vision-based sensors such as
 GelSight~\cite{yuan2017gelsight} and DIGIT~\cite{lambeta2020digit} recover both
 contact geometry and force at the cost of an embedded camera, illumination, and
-significant compute per fingertip---excellent fidelity but poorly matched to a
+significant compute per fingertip: excellent fidelity, but poorly matched to a
 sub-\$200 budget across four fingers. At the opposite end, force-sensing
 resistors (FSRs) are inexpensive piezoresistive sensors whose resistance drops
 nonlinearly with applied normal force~\cite{interlink2024fsr}. FSRs are noisy,
@@ -232,7 +231,7 @@ grasping robustness and prevents damage to fragile objects. Learning-based
 systems such as OpenAI's in-hand manipulation
 work~\cite{andrychowicz2020dexterity} achieve remarkable dexterity but rely on
 extensive simulation and high-end hardware. Our controller is deliberately
-simple---a thresholded force limit on each finger---demonstrating that even a
+simple, a thresholded force limit on each finger, and it shows that even a
 minimal force feedback loop on cheap sensors yields a meaningful safety
 guarantee.
 
@@ -422,16 +421,16 @@ trajectory (during MVP demos) or by a teleoperation input. At every cycle the
 controller reads that finger's calibrated force from \texttt{/tactile/forces}.
 While the force is below the safe threshold $\tau$, the commanded position is
 forwarded to the servo and the finger continues to close. The instant the force
-crosses $\tau$, the controller freezes that finger's target---``restrict
-motion''---so it stops squeezing harder even though the nominal trajectory would
+crosses $\tau$, the controller freezes that finger's target (the ``restrict
+motion'' branch) so it stops squeezing harder even though the nominal trajectory would
 keep closing, and a red status LED (one of two indicator LEDs on the board)
 lights to signal that the threshold has been reached. Release is triggered on
 demand by commanding the fingers open. In
 practice this lets the hand wrap a thin-walled paper cup, halt as soon as the
 fingertip force reaches the cup's safe limit, hold it stably, and release it
 cleanly without buckling the wall (Figure~\ref{fig:grasp}). This closed loop is
-the heart of the MVP and the clearest demonstration that the tactile channel is
-actually used, not merely measured.
+the heart of the MVP, and it is where the tactile channel is actually used rather
+than merely measured.
 
 \begin{figure}[htbp]
 \centering
@@ -470,12 +469,12 @@ simulator~\cite{todorov2012mujoco} by loading its
 URDF/MJCF model and verifying that the simulated finger kinematics and curl
 poses match the real hand (Figure~\ref{fig:sim}). The simulation serves two
 purposes: it is a safe sandbox for validating control logic before running it on
-hardware, and it is the foundation for sim-to-real experiments---most notably an
-in-hand cube-rotation policy trained in simulation with the intent of
-transferring it to the real hand, where the reality gap~\cite{zhao2020sim2real}
+hardware, and it is the foundation for sim-to-real experiments. The main one is an
+in-hand cube-rotation policy trained in simulation that we intend to
+transfer to the real hand, where the reality gap~\cite{zhao2020sim2real}
 between simulated and physical FSR contact remains the central challenge.
-Figure~\ref{fig:siminhand} shows the simulated hand mid-grasp on a cube---the
-exact setup in which we are developing the in-hand cube-rotation policy, where
+Figure~\ref{fig:siminhand} shows the simulated hand mid-grasp on a cube, the
+setup in which we are developing the in-hand cube-rotation policy, where
 the simulated fingers reorient the object in place before we attempt to transfer
 the learned behavior to the physical hand.
 
@@ -502,8 +501,8 @@ APK in Unity 2022.3 LTS from the
 \texttt{unity\_ros\_teleoperation} framework~\cite{leggedrobotics_teleop} and
 successfully streamed 6-DoF controller pose (position and orientation) into
 ROS~2 on Ubuntu. While functional, the Quest~2 path was awkward to integrate
-with our Python-based control stack. We therefore switched to \textbf{Valve
-Index controllers}, read through OpenVR/\texttt{pyopenvr}~\cite{valve2024openvr},
+with our Python-based control stack. We therefore switched to Valve
+Index controllers, read through OpenVR/\texttt{pyopenvr}~\cite{valve2024openvr},
 which gave us a clean pure-Python interface and native per-finger capacitive
 tracking. With the Index controllers, controller pose is published as a ROS~2
 topic at interactive rates. The same per-finger capacitive sensing lets the
@@ -527,10 +526,10 @@ robotic arm~\cite{arctos2024} and mapped controller pose to the arm's
 end-effector. Figure~\ref{fig:armmounted} shows the integrated platform: the
 Tactile Hand is fixed to the ARCTOS end-effector, and the whole arm-hand chain
 is driven from the VR controller through the same ROS~2 stack used for the
-standalone hand. \textbf{We built a full end-to-end teleoperation framework for
-the arm:} moving an Index controller moves the ARCTOS arm's end-effector through
-our ROS~2 pipeline---with controller-to-arm frame calibration, inverse
-kinematics, and motion smoothing all in place---so the full chain from VR input
+standalone hand. We built a full end-to-end teleoperation framework for
+the arm: moving an Index controller moves the ARCTOS arm's end-effector through
+our ROS~2 pipeline, with controller-to-arm frame calibration, inverse
+kinematics, and motion smoothing all in place, so the full chain from VR input
 to physical arm motion is closed (Figure~\ref{fig:vrarm}). The framework is not
 yet production quality: we continue refining the frame calibration, jitter
 filtering, latency, workspace-limit handling, and IK robustness toward reliable
@@ -585,15 +584,13 @@ runs.}
 
 The contrast is stark and repeatable. With force-thresholding enabled, each
 finger halts at the cup's safe limit and the hand holds the cup with its wall
-intact; with feedback disabled, the \emph{identical} teleoperated motion drives
+intact; with feedback disabled, the identical teleoperated motion drives
 the fingers past the safe force and visibly buckles the cup wall
 (Figure~\ref{fig:teleopcompare}). Because nothing changes between the two runs
 except the force loop, the comparison isolates the contribution of the tactile
-channel: the outcome flips from a clean hold to a crushed cup. This is our
-strongest evidence that the loop is doing real work, and it shows the loop
-\emph{composes} with teleoperation rather than being confined to the scripted
-MVP demo---the same safety behavior that protected the cup in the MVP protects
-it when a human is flying the arm in VR.
+channel: the outcome flips from a clean hold to a crushed cup. The same safety
+behavior that protected the cup in the scripted MVP holds up when a human is
+flying the arm in VR, so the loop is not confined to the scripted demo.
 
 \begin{figure}[htbp]
 \centering
@@ -611,20 +608,20 @@ A single hand-tuned threshold is enough for one known object, but a genuinely
 useful hand must choose an appropriate grip force for whatever it is handed. We
 extended the force-aware controller toward automatic, per-object grip selection
 and exercised it on a small set of everyday objects that demand different
-grips---most tellingly an empty versus a filled plastic bottle, which look
+grips. The hardest case is an empty versus a filled plastic bottle, which look
 nearly identical but differ sharply in weight and therefore in the grip force
 needed to hold them without slipping or crushing.
 
-Our pipeline recognizes the target in a webcam frame with a \textbf{fine-tuned
-YOLO26 object detector}~\cite{ultralytics_yolo26}. We annotated a small custom
-dataset of our objects (e.g., \emph{filled plastic bottle}, \emph{empty plastic
-bottle}, \emph{plastic box container}, and \emph{book}) and fine-tuned YOLO26 on
+Our pipeline recognizes the target in a webcam frame with a fine-tuned
+YOLO26 object detector~\cite{ultralytics_yolo26}. We annotated a small custom
+dataset of our objects (e.g., filled plastic bottle, empty plastic
+bottle, plastic box container, and book) and fine-tuned YOLO26 on
 it, giving real-time bounding-box detections with a class label per object
 (Figure~\ref{fig:yolo}). Each class maps to a hand-tuned target grip
-force---heavier or sturdier objects get a firmer threshold, lighter or more
-fragile ones a gentler threshold---and the detected class selects which
+force, with heavier or sturdier objects getting a firmer threshold and lighter or
+more fragile ones a gentler threshold, and the detected class selects which
 threshold the force-aware loop enforces. The detector changes only the
-\emph{source} of the target force; the downstream \texttt{/tactile/forces}
+source of the target force; the downstream \texttt{/tactile/forces}
 feedback path and the restrict-motion logic of Section~\ref{sec:graspctl} are
 reused unchanged, which kept the addition lightweight. Growing the object set
 and replacing the hand-tuned per-class thresholds with learned, weight-aware
@@ -747,26 +744,25 @@ crushing it. We additionally demonstrated webcam-based hand-pose mirroring,
 physics simulation of the hand, and VR controller streaming over ROS~2, we
 mounted the hand on a VR-teleoperated arm, and we added a fine-tuned YOLO26
 detector that selects a per-object grip force automatically. On that arm-mounted
-configuration we showed the result we consider most telling: under identical
-teleoperated motion,
+configuration we showed our central result: under identical teleoperated motion,
 the force-aware grasp holds a thin-walled cup while a force-blind grasp crushes
-it, demonstrating that the safety guarantee composes with teleoperation rather
-than being limited to a scripted demo.
+it. The safety guarantee carries over to teleoperation instead of being limited
+to a scripted demo.
 
-The significance of the work is accessibility: it shows that the single most
-safety-critical sensing capability of a robot hand---knowing its own grip
-force---can be added to a cheap, reproducible platform without specialized
+The significance of the work is accessibility. It shows that the most
+safety-critical sensing capability of a robot hand, knowing its own grip
+force, can be added to a cheap, reproducible platform without specialized
 hardware, and that it keeps working once the hand is placed on an arm and driven
 by a human, lowering the barrier to safe manipulation research and education.
 
 Future work follows directly from our partial milestones. We will complete
 per-finger calibration so each fingertip carries its own coefficients; expand
-the vision-guided, multi-object grip-selection pipeline---growing the YOLO26
+the vision-guided, multi-object grip-selection pipeline by growing the YOLO26
 object dataset and replacing the hand-tuned per-class thresholds with learned,
 weight-aware force targets; carry the
 off-axis system-identification results into the simulator to shrink the
 sim-to-real gap and push the in-hand cube-rotation policy onto real hardware;
-and---most substantially---refine our end-to-end VR arm teleoperation into
+and, most substantially, refine our end-to-end VR arm teleoperation into
 reliable pick-and-place by tightening the controller-to-arm calibration,
 filtering controller motion, and binding the Index per-finger tracking to the
 force-aware hand controller. All hardware designs, firmware, calibration data, and software
