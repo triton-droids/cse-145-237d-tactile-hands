@@ -19,6 +19,11 @@
 \setcounter{bottomnumber}{3}            % and at the bottom
 \setcounter{totalnumber}{5}             % and more floats overall per page
 
+% Tighten the whitespace LaTeX inserts around floats to reclaim vertical space.
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+
 
 %=====================================================================
 \begin{document}
@@ -26,20 +31,16 @@
 \title{Tactile Hands: A Force-Sensing Robotic Hand for Safe Grasping}
 
 \author{Bryce Hackel}
-\authornote{Project lead.}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
 \email{bhackel@ucsd.edu}
-
 
 \author{Ali El Lahib}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
 \email{aellahib@ucsd.edu}
-
-
 
 \author{Thomas Nghiem}
 \affiliation{%
@@ -71,7 +72,7 @@ and streams calibrated forces to a ROS~2 host, where a force-aware controller
 halts finger closure at a safe threshold. Calibration reaches better-than-1~N
 accuracy. Mounted on a teleoperated arm and driven in VR, the same controller
 grasps a thin-walled cup without crushing it, where a force-blind grasp collapses
-it. This is a low-cost foundation for tactile manipulation.
+it. Our work presents a low-cost foundation for researchers and hobbyists to perform tactile manipulation.
 \end{abstract}
 
 \keywords{tactile sensing, force-sensing resistors, robotic hand, grasping,
@@ -287,7 +288,7 @@ control logic.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/control_loop.png}
+\includegraphics[width=0.62\linewidth]{figures/control_loop.png}
 \caption{Force-aware grasp control loop. Target finger positions (from a fixed
 grasp trajectory or a teleoperation input) and live FSR forces are compared at
 every cycle. If a finger's force exceeds the safe threshold, that finger's
@@ -312,7 +313,7 @@ a Bambu Lab A1~Mini, with the electronics mounted on the back of the hand
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.5\linewidth]{figures/mvp_hand.png}
+\includegraphics[width=0.4\linewidth]{figures/mvp_hand.png}
 \caption{The assembled four-finger Tactile Hand on its base, with a force-sensing
 resistor bonded to each fingertip and its leads routed back toward the palm.
 This four-finger morphology is the MVP platform used for all force-aware grasping
@@ -346,7 +347,7 @@ backfeed during bench debugging.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\linewidth]{figures/enclosure_circuit.png}
+\includegraphics[width=0.72\linewidth]{figures/enclosure_circuit.png}
 \caption{Custom ESP32-S3 sensing board (left) with the four FSR voltage-divider
 channels highlighted, and the 3D-printed enclosure with status LEDs mounted on
 the back of the hand (right).}
@@ -376,18 +377,9 @@ single, stable interface.
 FSRs are strongly nonlinear and vary unit to unit, so raw ADC counts must be
 mapped to physical force. We built a calibration rig that holds a sensor flat
 and level, then stacked 3D-printed PLA reference weights on a loading plate so a
-known mass rests on the active area (Figure~\ref{fig:calibrig}). For each load we
+known mass rests on the active area (Figure~\ref{fig:calib}, left). For each load we
 logged the ADC reading over serial. Sweeping a range of loads produced a set of
 (raw count, force) pairs.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.55\linewidth]{figures/calib_rig.png}
-\caption{Calibration rig. A 3D-printed loading plate rests on the FSR's active
-area while stacked PLA reference weights apply a known mass; sweeping the stack
-yields the (raw count, force) loading points used to fit the calibration curve.}
-\label{fig:calibrig}
-\end{figure}
 
 The FSR's count-to-force relationship is well captured by a power law,
 \begin{equation}
@@ -396,7 +388,7 @@ F(r) \;=\; a\, r^{\,b},
 \end{equation}
 which we fit by nonlinear least squares. Across seven loading points the fit
 yielded $a = 1.07\times10^{-9}$ and $b = 3.16$, with a root-mean-square error of
-17.1~g and a maximum error of 25.7~g (Figure~\ref{fig:calib}). Since
+17.1~g and a maximum error of 25.7~g (Figure~\ref{fig:calib}, right). Since
 $1\,\mathrm{N}\approx102$~g-force, a 25.7~g worst case corresponds to roughly
 0.25~N---comfortably within our 1~N accuracy target. The procedure is
 documented and repeatable; extending it to characterize all four fingers
@@ -404,10 +396,17 @@ individually (each with its own $a,b$) is in progress.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.9\linewidth]{figures/analog.png}
-\caption{Force-sensor calibration. A power-law model fit to seven stacked-weight
-loading points maps raw ADC counts to applied force. Worst-case error (25.7~g
-$\approx$ 0.25~N) is well within the 1~N target.}
+\begin{minipage}[c]{0.27\linewidth}\centering
+\includegraphics[width=\linewidth]{figures/calib_rig.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.66\linewidth}\centering
+\includegraphics[width=\linewidth]{figures/analog.png}
+\end{minipage}
+\caption{Force-sensor calibration. Left: the calibration rig, a 3D-printed
+loading plate on the FSR's active area loaded with stacked PLA reference weights
+to apply a known mass. Right: a power-law model fit to seven stacked-weight
+loading points maps raw ADC counts to applied force, with worst-case error
+25.7~g ($\approx$0.25~N), well within the 1~N target.}
 \label{fig:calib}
 \end{figure}
 
@@ -432,7 +431,7 @@ than merely measured.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.55\linewidth]{figures/closed_hand.png}
+\includegraphics[width=0.42\linewidth]{figures/closed_hand.png}
 \caption{Force-aware grasping. The hand grasps a thin-walled cup and halts
 finger closure when the measured fingertip force exceeds the safe threshold,
 holding the cup without crushing it.}
@@ -453,7 +452,7 @@ recovering thumb abduction, which a single curl scalar does not capture.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\linewidth]{figures/hand_pose.png}
+\includegraphics[width=0.68\linewidth]{figures/hand_pose.png}
 \caption{Hand-pose mirroring. MediaPipe-based finger-pose estimation from a
 webcam (right) is mapped to per-finger servo commands so the robotic hand
 reproduces the operator's gesture (left).}
@@ -465,7 +464,7 @@ reproduces the operator's gesture (left).}
 We brought up the AmazingHand in the MuJoCo physics
 simulator~\cite{todorov2012mujoco} by loading its
 URDF/MJCF model and verifying that the simulated finger kinematics and curl
-poses match the real hand (Figure~\ref{fig:sim}). The simulation serves two
+poses match the real hand. The simulation serves two
 purposes: it is a safe sandbox for validating control logic before running it on
 hardware, and it is the foundation for sim-to-real experiments. The main one is an
 in-hand cube-rotation policy trained in simulation that we intend to
@@ -478,19 +477,11 @@ the learned behavior to the physical hand.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.6\linewidth]{figures/sim_inhand.png}
+\includegraphics[width=0.45\linewidth]{figures/sim_inhand.png}
 \caption{Simulated in-hand manipulation. The AmazingHand model grasps a cube in
 the physics simulator; this is the environment used to develop the in-hand
 cube-rotation policy that we intend to transfer to hardware.}
 \label{fig:siminhand}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.55\linewidth]{figures/sim.png}
-\caption{The AmazingHand model loaded into MuJoCo, used to verify
-finger kinematics and as groundwork for sim-to-real in-hand manipulation.}
-\label{fig:sim}
 \end{figure}
 
 \subsection{VR Teleoperation and Arm Integration}
@@ -505,54 +496,38 @@ which gave us a clean pure-Python interface and native per-finger capacitive
 tracking. With the Index controllers, controller pose is published as a ROS~2
 topic at interactive rates. The same per-finger capacitive sensing lets the
 operator's finger motion drive the hand's fingers directly
-(Figure~\ref{fig:vrindex}), so a single controller supplies both the 6-DoF wrist
+(Figure~\ref{fig:vrindex}, left), so a single controller supplies both the 6-DoF wrist
 pose and a per-finger curl signal on the shared \texttt{/servo/commands}
 interface.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.85\linewidth]{figures/vr_index_hand.png}
-\caption{Per-finger VR teleoperation. The Valve Index controller's native
-capacitive finger tracking (right) is streamed over ROS~2 and mapped onto the
-robotic hand's fingers (left), driving finger curl directly from the operator's
-hand.}
+\includegraphics[width=0.5\linewidth]{figures/vr_index_hand.png}\hfill
+\includegraphics[width=0.46\linewidth]{figures/vr-demo.png}
+\caption{VR teleoperation. Left: the Valve Index controller's native capacitive
+finger tracking is streamed over ROS~2 and mapped onto the robotic hand's
+fingers, driving finger curl directly from the operator's hand. Right: the
+controller's 6-DoF pose drives the ARCTOS arm end-effector through our
+end-to-end framework (frame calibration, IK, and motion smoothing), giving
+VR-driven control of the arm-mounted hand that we continue to refine.}
 \label{fig:vrindex}
 \end{figure}
 
 To turn streamed pose into motion we mounted the hand on an open-source ARCTOS
 robotic arm~\cite{arctos2024} and mapped controller pose to the arm's
-end-effector. Figure~\ref{fig:armmounted} shows the integrated platform: the
-Tactile Hand is fixed to the ARCTOS end-effector, and the whole arm-hand chain
+end-effector. In the integrated platform the Tactile Hand is fixed to the
+ARCTOS end-effector, and the whole arm-hand chain
 is driven from the VR controller through the same ROS~2 stack used for the
 standalone hand. We built a full end-to-end teleoperation framework for
 the arm: moving an Index controller moves the ARCTOS arm's end-effector through
 our ROS~2 pipeline, with controller-to-arm frame calibration, inverse
 kinematics, and motion smoothing all in place, so the full chain from VR input
-to physical arm motion is closed (Figure~\ref{fig:vrarm}). The framework is not
+to physical arm motion is closed (Figure~\ref{fig:vrindex}, right). The framework is not
 yet production quality: we continue refining the frame calibration, jitter
 filtering, latency, workspace-limit handling, and IK robustness toward reliable
 teleoperated pick-and-place. Tightening those, and binding the per-finger Index
 tracking to the force-aware hand controller, is the main remaining integration
 task.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.95\linewidth]{figures/arm_mounted.png}
-\caption{Integrated hardware. The Tactile Hand mounted on the end-effector of
-the open-source ARCTOS arm. The full arm-hand chain is driven from a VR
-controller through the same ROS~2 stack used for the standalone hand.}
-\label{fig:armmounted}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.58\linewidth]{figures/vr-demo.png}
-\caption{VR teleoperation. Valve Index controller 6-DoF pose is streamed over
-ROS~2 and mapped to the ARCTOS arm end-effector through an end-to-end framework
-with frame calibration, IK, and motion smoothing, giving VR-driven control of
-the arm-mounted hand that we continue to refine.}
-\label{fig:vrarm}
-\end{figure}
 
 \subsection{Teleoperated Force-Aware Grasping}
 \label{sec:teleopgrasp}
@@ -563,22 +538,9 @@ force-aware controller of Section~\ref{sec:graspctl} active on the arm-mounted
 hand while an operator teleoperated the arm to a fixed, thin-walled 3D-printed
 cup and triggered a grasp. We ran the same teleoperated grasp under two
 conditions: once with the force-aware controller enabled, and once with force
-feedback disabled so the fingers simply close to a fixed curl.
-Figure~\ref{fig:teleopdemo} shows the full teleoperated setup under both
-conditions: in each run the operator drives the same Index controller to the
-same cup, and only the state of the force loop differs.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.48\linewidth]{figures/teleop_noforce.png}\hfill
-\includegraphics[width=0.48\linewidth]{figures/teleop_force.png}
-\caption{Teleoperated grasp under both conditions. Left: with force feedback
-disabled, the closing command drives the fingers into the cup with no stopping
-criterion. Right: with force-threshold sensing enabled, each finger halts at the
-cup's safe limit. The operator motion and the target object are the same in both
-runs.}
-\label{fig:teleopdemo}
-\end{figure}
+feedback disabled so the fingers simply close to a fixed curl. In each run the
+operator drives the same Index controller to the same cup, and only the state of
+the force loop differs.
 
 The contrast is stark and repeatable. With force-thresholding enabled, each
 finger halts at the cup's safe limit and the hand holds the cup with its wall
@@ -592,7 +554,7 @@ flying the arm in VR, so the loop is not confined to the scripted demo.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\linewidth]{figures/teleop_compare.png}
+\includegraphics[width=0.65\linewidth]{figures/teleop_compare.png}
 \caption{Teleoperated force-aware grasping. Under the same VR-teleoperated
 motion, the force-blind grasp (left) crushes the thin-walled cup, while the
 force-threshold grasp (right) holds it with the wall intact. Only the force loop
@@ -627,7 +589,7 @@ force targets is left to future work.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\linewidth]{figures/yolo_detection.png}
+\includegraphics[width=0.58\linewidth]{figures/yolo_detection.png}
 \caption{Vision-guided grip selection. A YOLO26 detector fine-tuned on a small
 custom-annotated dataset recognizes each object and its class (e.g., filled vs.
 empty plastic bottle); the detected class selects a per-object grip-force
