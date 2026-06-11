@@ -26,17 +26,18 @@
 \title{Tactile Hands: A Force-Sensing Robotic Hand for Safe Grasping}
 
 \author{Bryce Hackel}
+\authornote{Project lead.}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
-\email{bhackel@ucsd.edu} % TODO: confirm email
+\email{bhackel@ucsd.edu}
 
 
 \author{Ali El Lahib}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
-\email{aellahib@ucsd.edu} % TODO: confirm email
+\email{aellahib@ucsd.edu}
 
 
 
@@ -44,19 +45,19 @@
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
-\email{tnghiem@ucsd.edu} % TODO: confirm email
+\email{tnghiem@ucsd.edu}
 
 \author{Shree Venkatesh}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
-\email{s1venkatesh@ucsd.edu} % TODO: confirm email
+\email{s1venkatesh@ucsd.edu}
 
-\author{Sidath Wijesinghe}
+\author{Sidath Daham Wijesinghe}
 \affiliation{%
   \institution{University of California, San Diego}
   \city{La Jolla}\state{California}\country{USA}}
-\email{swijesinghe@ucsd.edu} % TODO: confirm email
+\email{swijesinghe@ucsd.edu}
 
 \renewcommand{\shortauthors}{Triton Droids: Tactile Hands}
 
@@ -127,8 +128,10 @@ through voltage dividers, converts raw ADC readings to Newtons using a
 calibrated power-law model, and streams the values over USB to a ROS~2 host. A
 force-aware grasp controller continuously compares each fingertip force against
 a safe threshold and stops closing a finger the moment that threshold is
-crossed, allowing the hand to wrap a thin-walled cup and hold it without
-collapsing it. The complete bill of materials remains under \$200.
+crossed, allowing the hand to wrap a thin-walled paper cup and hold it without
+collapsing it. The complete bill of materials remains under \$200---a figure
+that covers the hand itself driven by a laptop webcam; the Valve Index
+controllers and ARCTOS arm are stretch additions on top.
 
 Two design decisions make the system more than the sum of inexpensive parts.
 First, all sensing and actuation are mediated by a single ROS~2 interface:
@@ -291,14 +294,16 @@ control logic.
 \caption{Force-aware grasp control loop. Target finger positions (from a fixed
 grasp trajectory or a teleoperation input) and live FSR forces are compared at
 every cycle. If a finger's force exceeds the safe threshold, that finger's
-motion is restricted; otherwise the servo command is issued.}
+motion is restricted and a red status LED lights; otherwise the servo command
+is issued.}
 \label{fig:block}
 \end{figure}
 
 \subsection{Mechanical Platform}
 The hand is based on the open-source AmazingHand~\cite{pollen2025amazinghand}, a
-four-fingered, fully 3D-printed design. Each finger is actuated by a Feetech
-SCS0009 serial-bus micro servo, giving four independently controllable fingers.
+four-fingered, fully 3D-printed design. Each finger is actuated by two Feetech
+SCS0009 serial-bus micro servos (eight in total), giving four independently
+controllable fingers.
 We retained the original four-finger morphology rather than expanding to five:
 four fingers are sufficient to demonstrate force-aware power and pinch grasps on
 our test objects, simplify the control problem, and keep the hand compact enough
@@ -419,8 +424,10 @@ While the force is below the safe threshold $\tau$, the commanded position is
 forwarded to the servo and the finger continues to close. The instant the force
 crosses $\tau$, the controller freezes that finger's target---``restrict
 motion''---so it stops squeezing harder even though the nominal trajectory would
-keep closing. Release is triggered on demand by commanding the fingers open. In
-practice this lets the hand wrap a thin-walled plastic cup, halt as soon as the
+keep closing, and a red status LED (one of two indicator LEDs on the board)
+lights to signal that the threshold has been reached. Release is triggered on
+demand by commanding the fingers open. In
+practice this lets the hand wrap a thin-walled paper cup, halt as soon as the
 fingertip force reaches the cup's safe limit, hold it stably, and release it
 cleanly without buckling the wall (Figure~\ref{fig:grasp}). This closed loop is
 the heart of the MVP and the clearest demonstration that the tactile channel is
@@ -437,7 +444,7 @@ holding the cup without crushing it.}
 
 \subsection{Vision-Based Hand-Pose Estimation}
 To drive the hand from a human gesture we built a webcam pipeline on MediaPipe
-Hands~\cite{zhang2020mediapipe}, which returns 21 hand landmarks in real time.
+Hands~\cite{zhang2020mediapipe} and OpenCV, which returns 21 hand landmarks in real time.
 From the landmarks we estimate each finger's joint angles, reduce them to a
 single normalized curl value in $[0,1]$ per finger, and map that value onto the
 servo's angular range. The result is a four-element command vector published on
@@ -458,17 +465,17 @@ reproduces the operator's gesture (left).}
 
 \subsection{Physics Simulation}
 \label{sec:simsec}
-We brought up the AmazingHand in a physics
-simulator~\cite{todorov2012mujoco, makoviychuk2021isaacgym} by loading its
+We brought up the AmazingHand in the MuJoCo physics
+simulator~\cite{todorov2012mujoco} by loading its
 URDF/MJCF model and verifying that the simulated finger kinematics and curl
 poses match the real hand (Figure~\ref{fig:sim}). The simulation serves two
 purposes: it is a safe sandbox for validating control logic before running it on
 hardware, and it is the foundation for sim-to-real experiments---most notably an
-in-hand object-rotation policy trained in simulation with the intent of
+in-hand cube-rotation policy trained in simulation with the intent of
 transferring it to the real hand, where the reality gap~\cite{zhao2020sim2real}
 between simulated and physical FSR contact remains the central challenge.
 Figure~\ref{fig:siminhand} shows the simulated hand mid-grasp on a cube---the
-exact setup in which we are developing the in-hand object-rotation policy, where
+exact setup in which we are developing the in-hand cube-rotation policy, where
 the simulated fingers reorient the object in place before we attempt to transfer
 the learned behavior to the physical hand.
 
@@ -477,14 +484,14 @@ the learned behavior to the physical hand.
 \includegraphics[width=0.6\linewidth]{figures/sim_inhand.png}
 \caption{Simulated in-hand manipulation. The AmazingHand model grasps a cube in
 the physics simulator; this is the environment used to develop the in-hand
-object-rotation policy that we intend to transfer to hardware.}
+cube-rotation policy that we intend to transfer to hardware.}
 \label{fig:siminhand}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.55\linewidth]{figures/sim.png}
-\caption{The AmazingHand model loaded into a physics simulator, used to verify
+\caption{The AmazingHand model loaded into MuJoCo, used to verify
 finger kinematics and as groundwork for sim-to-real in-hand manipulation.}
 \label{fig:sim}
 \end{figure}
@@ -520,16 +527,16 @@ robotic arm~\cite{arctos2024} and mapped controller pose to the arm's
 end-effector. Figure~\ref{fig:armmounted} shows the integrated platform: the
 Tactile Hand is fixed to the ARCTOS end-effector, and the whole arm-hand chain
 is driven from the VR controller through the same ROS~2 stack used for the
-standalone hand. \textbf{As of this report, we have preliminary, unrefined arm
-teleoperation working end to end:} moving an Index controller moves the
-ARCTOS arm's end-effector through our ROS~2 pipeline, so the full chain from
-VR input to physical arm motion is closed (Figure~\ref{fig:vrarm}). The
-behavior is not yet production quality---it needs a properly calibrated
-controller-to-arm frame transform, motion smoothing and filtering to suppress
-controller jitter, latency reduction, workspace-limit handling, and more robust
-inverse kinematics before it can perform reliable teleoperated pick-and-place.
-Closing those gaps, and binding the per-finger Index tracking to the
-force-aware hand controller, is the main remaining integration task.
+standalone hand. \textbf{We built a full end-to-end teleoperation framework for
+the arm:} moving an Index controller moves the ARCTOS arm's end-effector through
+our ROS~2 pipeline---with controller-to-arm frame calibration, inverse
+kinematics, and motion smoothing all in place---so the full chain from VR input
+to physical arm motion is closed (Figure~\ref{fig:vrarm}). The framework is not
+yet production quality: we continue refining the frame calibration, jitter
+filtering, latency, workspace-limit handling, and IK robustness toward reliable
+teleoperated pick-and-place. Tightening those, and binding the per-finger Index
+tracking to the force-aware hand controller, is the main remaining integration
+task.
 
 \begin{figure}[htbp]
 \centering
@@ -544,8 +551,9 @@ controller through the same ROS~2 stack used for the standalone hand.}
 \centering
 \includegraphics[width=0.58\linewidth]{figures/vr-demo.png}
 \caption{VR teleoperation. Valve Index controller 6-DoF pose is streamed over
-ROS~2 and mapped to the ARCTOS arm end-effector, yielding preliminary
-(unrefined) VR-driven control of the arm-mounted hand.}
+ROS~2 and mapped to the ARCTOS arm end-effector through an end-to-end framework
+with frame calibration, IK, and motion smoothing, giving VR-driven control of
+the arm-mounted hand that we continue to refine.}
 \label{fig:vrarm}
 \end{figure}
 
@@ -698,9 +706,9 @@ All MVP deliverables were met. Among reach goals, multi-object grip selection wa
 completed (YOLO26 detection driving per-class force thresholds,
 Section~\ref{sec:multiobject}) and the teleoperated force-aware grasp was
 demonstrated (Section~\ref{sec:teleopgrasp}). VR-to-arm teleoperation works end
-to end but is unrefined---it still needs a calibrated controller-to-arm
-transform, motion filtering, and more robust inverse kinematics for reliable
-pick-and-place. Three items remain unfinished: the sim-to-real transfer of the
+to end through a full framework with frame calibration, inverse kinematics, and
+motion smoothing, which we continue to refine (jitter filtering, latency, and IK
+robustness) toward reliable pick-and-place. Three items remain unfinished: the sim-to-real transfer of the
 in-hand rotation policy (trained in simulation but not yet moved to hardware),
 finger adduction/abduction control (our curl interface captures flexion only),
 and per-finger calibration across all four sensors (validated on one sensor,
@@ -718,8 +726,9 @@ arm drove reliably; off-axis fingertip loading during arm-driven grasps biases
 readings relative to the normal-load calibration (we are characterizing this and
 feeding it back into simulation, Section~\ref{sec:multiobject}); and the
 read--decide--actuate loop has enough latency that the operator must close slowly
-to avoid overshooting the threshold. The hand's limited reachability also favored
-larger test objects. Throughout, the MVP-first policy---integrate reach goals
+to avoid overshooting the threshold. The hand's wide palm limited its
+reachability and made small objects hard to grasp, so we favored larger test
+objects. Throughout, the MVP-first policy---integrate reach goals
 only after the MVP, and replan any task slipping more than a week---kept the
 gating path protected.
 
@@ -756,11 +765,11 @@ the vision-guided, multi-object grip-selection pipeline---growing the YOLO26
 object dataset and replacing the hand-tuned per-class thresholds with learned,
 weight-aware force targets; carry the
 off-axis system-identification results into the simulator to shrink the
-sim-to-real gap and push the in-hand object-rotation policy onto real hardware;
-and---most substantially---refine the VR arm teleoperation into reliable
-pick-and-place by calibrating the controller-to-arm transform, filtering
-controller motion, and binding the Index per-finger tracking to the force-aware
-hand controller. All hardware designs, firmware, calibration data, and software
+sim-to-real gap and push the in-hand cube-rotation policy onto real hardware;
+and---most substantially---refine our end-to-end VR arm teleoperation into
+reliable pick-and-place by tightening the controller-to-arm calibration,
+filtering controller motion, and binding the Index per-finger tracking to the
+force-aware hand controller. All hardware designs, firmware, calibration data, and software
 will be released in a public GitHub repository so that others can reproduce a
 low-cost, force-sensing dexterous hand.
 
