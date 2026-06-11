@@ -62,17 +62,16 @@
 \renewcommand{\shortauthors}{Triton Droids: Tactile Hands}
 
 \begin{abstract}
-Robotic hands that grasp without sensing how hard they squeeze risk crushing
-fragile objects, yet no open-source robotic hand under \$200 offers fingertip
-force sensing. We present Tactile Hands, a sub-\$200, four-fingered robotic hand
-that adds calibrated fingertip force-sensing resistors (FSRs) to the open-source
-AmazingHand platform. A custom ESP32-S3 board reads four FSRs through voltage
-dividers and streams calibrated forces over USB to a ROS~2 host, where a
-force-aware controller halts finger closure once a safe force threshold is
-reached. Calibration achieves better-than-1~N accuracy. Mounted on an
-open-source arm and teleoperated in VR, the same controller grasps a thin-walled
-cup without crushing it, where a force-blind grasp collapses it. The result is a
-low-cost foundation for tactile dexterous manipulation.
+Robotic hands that grasp without sensing how hard they squeeze can crush
+fragile objects, yet no open-source hand under \$200 offers fingertip force
+sensing. We present Tactile Hands, a sub-\$200, four-fingered robotic hand that
+adds calibrated fingertip force-sensing resistors (FSRs) to the open-source
+AmazingHand. A custom ESP32-S3 board reads four FSRs through voltage dividers
+and streams calibrated forces to a ROS~2 host, where a force-aware controller
+halts finger closure at a safe threshold. Calibration reaches better-than-1~N
+accuracy. Mounted on a teleoperated arm and driven in VR, the same controller
+grasps a thin-walled cup without crushing it, where a force-blind grasp collapses
+it. This is a low-cost foundation for tactile manipulation.
 \end{abstract}
 
 \keywords{tactile sensing, force-sensing resistors, robotic hand, grasping,
