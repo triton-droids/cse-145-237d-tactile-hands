@@ -21,6 +21,7 @@ Protocol reference: "MKS SERVO42&57D_CAN User Manual V1.0.6", sections 4-6.
 Checksum:  CRC = (can_id + sum(body_bytes)) & 0xFF, appended as last byte.
 """
 
+import json
 import os
 import time
 import threading
@@ -36,6 +37,7 @@ import serial.tools.list_ports
 # MKS command codes used by this controller
 # ---------------------------------------------------------------------------
 CMD_READ_ENCODER = 0x31         # int48 addition encoder value
+CMD_READ_IO = 0x34              # IO port status: bit0 IN_1(En), bit1 IN_2(Dir)
 CMD_SET_HOME_PARAMS = 0x90      # trigger level, direction, speed, end-limit, mode
 CMD_GO_HOME = 0x91              # run the firmware homing sequence
 CMD_SET_AXIS_ZERO = 0x92        # set current encoder position as zero
@@ -86,6 +88,16 @@ class MoveFailed(ArctosError):
 
 class LimitHit(ArctosError):
     """Motor stopped on an end-limit switch (status=3)."""
+
+
+class SoftLimitExceeded(ArctosError):
+    """
+    Move refused: it would drive a joint past its software travel limit.
+
+    Distinct from LimitHit, which is the firmware reporting that a physical
+    end-limit switch stopped a move already in progress. This one is a
+    software guard that stops the command from being sent at all.
+    """
 
 
 class CommandTimeout(ArctosError):
@@ -201,6 +213,47 @@ def resolve_com_port(preferred: Optional[str] = None) -> str:
     return chosen
 
 
+LIMITS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "joint_limits.json")
+
+
+def _load_limits_file(
+    path: str = LIMITS_PATH,
+) -> Tuple[Dict[int, Tuple[float, float]], set]:
+    """
+    Load joint_limits.json: (measured absolute limits, park_is_origin joints).
+
+    The limits are only meaningful once the joint has been homed in the
+    current session -- the encoder resets to 0 on power-on at whatever pose
+    the arm happens to be in, which is indistinguishable from sitting at the
+    reference end. ArctosArm therefore only enforces them for joints it has
+    seen zeroed (or confirmed parked).
+    """
+    if not os.path.exists(path):
+        return {}, set()
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"[ARCTOS] could not read {path}: {e}")
+        return {}, set()
+    limits, park = {}, set()
+    for key, lim in doc.get("joints", {}).items():
+        try:
+            joint = int(key)
+        except ValueError:
+            continue
+        if lim.get("park_is_origin"):
+            park.add(joint)
+        if "min" not in lim or "max" not in lim:
+            continue    # continuous axes carry no bounds
+        try:
+            limits[joint] = (float(lim["min"]), float(lim["max"]))
+        except (TypeError, ValueError):
+            continue
+    return limits, park
+
+
 # ---------------------------------------------------------------------------
 # Main controller
 # ---------------------------------------------------------------------------
@@ -226,6 +279,26 @@ class ArctosArm:
     }
     JOINTS = (1, 2, 3, 4, 5, 6)
 
+    # ------------------------------------------------------------------
+    # Software travel limits (PHASE 0 STOPGAP)
+    #
+    # These bound how far each joint may travel from wherever it sat when
+    # connect() ran -- NOT absolute joint angles. That is deliberate: the
+    # encoders reset on power-on, so until the arm is homed there is no
+    # meaningful absolute zero to reference limits against. Bounding travel
+    # from the session start needs no zero and still stops a runaway.
+    #
+    # Values are conservative on purpose. Replace with measured per-joint
+    # ranges (see joint_limits.json) once the arm homes reliably.
+    TRAVEL_LIMITS: Dict[int, float] = {
+        1: 25.0,   # J1 base yaw   - swings the whole arm
+        2: 15.0,   # J2 shoulder   - carries arm weight against gravity
+        3: 15.0,   # J3 elbow      - the joint that nearly overran
+        4: 30.0,   # J4 forearm roll
+        5: 30.0,   # J5 wrist B
+        6: 30.0,   # J6 wrist C
+    }
+
     PPR = 3200               # microsteps per motor revolution (command)
     ENCODER_CPR = 0x4000     # encoder counts per motor revolution (14-bit)
     BITRATE = 500_000
@@ -245,6 +318,17 @@ class ArctosArm:
         if env_j:
             self.JOINTS = tuple(int(x) for x in env_j.split(",") if x.strip())
         self.current_angles: Dict[int, float] = {j: 0.0 for j in self.JOINTS}
+        # Reference pose for TRAVEL_LIMITS, captured by connect(). Empty until
+        # then, which disables the guard (no reference = nothing to bound).
+        self._start_angles: Dict[int, float] = {}
+        # Measured absolute limits, enforced only for joints zeroed this
+        # session (see _load_limits_file).
+        self.JOINT_LIMITS: Dict[int, Tuple[float, float]]
+        self.JOINT_LIMITS, self._park_is_origin = _load_limits_file()
+        self._homed: set = set()
+        # Serialises bus writes: an e-stop may be sent from another thread
+        # while a worker is mid-command (teleop_gui does exactly this).
+        self._tx_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._pending: Dict[Tuple[int, int], Future] = {}
         self._pending_lock = threading.Lock()
@@ -274,6 +358,67 @@ class ArctosArm:
         time.sleep(0.3)
         if sync_encoders:
             self.sync_all_encoders()
+            # Anchor the travel guard to the pose we booted into.
+            with self._state_lock:
+                self._start_angles = dict(self.current_angles)
+            self._report_park_candidates()
+            print("[ARCTOS] travel limits anchored to start pose; "
+                  "per-joint allowance (deg): "
+                  + ", ".join(f"J{j}=±{self.TRAVEL_LIMITS[j]:g}"
+                              for j in sorted(self.JOINTS)
+                              if j in self.TRAVEL_LIMITS))
+
+    PARK_ORIGIN_TOLERANCE = 2.0   # degrees
+
+    def _report_park_candidates(self) -> None:
+        """
+        Report whether the encoder zero *might* be a valid origin -- but do NOT
+        act on it.
+
+        An encoder reading of 0 at power-on proves nothing: the encoder resets
+        to 0 wherever the arm happens to be. Treating that as "parked at the
+        origin" anchors the measured limits to the wrong physical place, and
+        the guard then permits travel straight into a mechanical stop. That is
+        strictly worse than having no absolute limits at all.
+
+        So the origin is UNKNOWN until something establishes it: zero_here()
+        against a physical reference, or an explicit confirm_parked() from an
+        operator who has actually looked at the arm. Until then every joint
+        stays on the conservative travel-from-start guard.
+        """
+        candidates = [j for j in sorted(self._park_is_origin)
+                      if abs(self.current_angles.get(j, 999.0))
+                      <= self.PARK_ORIGIN_TOLERANCE]
+        if candidates:
+            names = ", ".join(f"J{j}" for j in candidates)
+            print(f"[ARCTOS] {names} read ~0°, which is CONSISTENT with being "
+                  f"parked at the origin but does not prove it.")
+            print("[ARCTOS] Measured limits are NOT enforced. Using the "
+                  "conservative travel guard. If the arm really is parked, "
+                  "call confirm_parked() (teleop_gui.py has a button for it).")
+
+    def confirm_parked(self, joints: Optional[Sequence[int]] = None) -> None:
+        """
+        Assert that the arm is physically at its park pose, so the encoder
+        zero really is the origin and the measured limits can be enforced.
+
+        Only call this having actually looked at the arm. Getting it wrong
+        puts every limit in the wrong physical place.
+        """
+        if joints is None:
+            joints = sorted(self._park_is_origin)
+        for joint in joints:
+            angle = self.current_angles.get(joint)
+            if angle is None:
+                continue
+            if abs(angle) > self.PARK_ORIGIN_TOLERANCE:
+                print(f"[ARCTOS] refusing to confirm J{joint}: reads "
+                      f"{angle:+.2f}°, not its park origin.")
+                continue
+            self._homed.add(joint)
+            lo, hi = self.JOINT_LIMITS.get(joint, (0.0, 0.0))
+            print(f"[ARCTOS] J{joint} origin confirmed — measured limits "
+                  f"enforced: [{lo:+.1f}, {hi:+.1f}]")
 
     def disconnect(self, stop_motors: bool = True) -> None:
         """
@@ -350,7 +495,8 @@ class ArctosArm:
         )
         if _CAN_DEBUG:
             print(f"[TX] ID=0x{arb_id:03X} DATA=[{self._hex(payload)}]")
-        bus.send(msg)
+        with self._tx_lock:
+            bus.send(msg)
 
     # ------------------------------------------------------------------
     # Pending-future bookkeeping
@@ -435,6 +581,8 @@ class ArctosArm:
             self._handle_speed_response(joint, body)
         elif code == CMD_QUERY_STATUS:
             self._handle_status_response(joint, body)
+        elif code == CMD_READ_IO:
+            self._handle_io_response(joint, body)
         elif code == CMD_EMERGENCY_STOP:
             self._handle_stop_response(joint, body)
         # Unsolicited frames fall through silently (logged by RX loop).
@@ -491,6 +639,12 @@ class ArctosArm:
         if len(body) != 1:
             return
         self._complete_pending(joint, CMD_QUERY_STATUS, body[0])
+
+    def _handle_io_response(self, joint: int, body: bytes) -> None:
+        # 0x34 response body: [status] -- bit0 IN_1, bit1 IN_2, bit2/3 outputs.
+        if len(body) != 1:
+            return
+        self._complete_pending(joint, CMD_READ_IO, body[0])
 
     def _handle_stop_response(self, joint: int, body: bytes) -> None:
         if len(body) != 1:
@@ -550,6 +704,81 @@ class ArctosArm:
             pulses & 0xFF,
         ])
 
+    def _limit_window(self, joint: int):
+        """
+        The bounds in force for a joint, as (low, high, description).
+
+        A joint zeroed this session is held to its measured absolute limits.
+        Everything else falls back to bounded travel from the connect pose,
+        which needs no origin and still stops a runaway.
+        """
+        if joint in self._homed and joint in self.JOINT_LIMITS:
+            lo, hi = self.JOINT_LIMITS[joint]
+            return lo, hi, "measured"
+        allowance = self.TRAVEL_LIMITS.get(joint)
+        if allowance is None or joint not in self._start_angles:
+            return None
+        start = self._start_angles[joint]
+        return start - allowance, start + allowance, "travel-from-start"
+
+    def _apply_travel_limit(
+        self,
+        joint: int,
+        degrees: float,
+        on_limit: str,
+        current: Optional[float],
+    ) -> float:
+        """
+        Bound a relative move so the joint stays within TRAVEL_LIMITS of the
+        pose captured at connect(). Returns the (possibly shortened) delta.
+
+        Checks the PREDICTED end position, not the current one -- catching the
+        overrun before the frame goes out is the whole point.
+
+        A joint already outside its window (e.g. confirmed parked at -1.5°
+        against a 0° minimum) may move back toward it but never further out.
+        Clamping against the raw window would instead yank it into range --
+        turning a small negative jog into a larger positive one.
+        """
+        if on_limit not in ("clamp", "raise"):
+            raise ValueError(f"on_limit must be 'clamp' or 'raise', got {on_limit!r}")
+
+        window = self._limit_window(joint)
+        if window is None:
+            return degrees  # no reference pose or no limit configured
+        low, high, source = window
+
+        if current is None:
+            # Cached angles are only refreshed by encoder reads, so a stale
+            # value here would defeat the guard. Pay for a fresh one.
+            try:
+                current = self.read_encoder(joint)
+            except ArctosError:
+                with self._state_lock:
+                    current = self.current_angles[joint]
+
+        predicted = current + degrees
+        # Widen the window to include where the joint already is, so the
+        # clamp can only shorten a move, never reverse it.
+        lo, hi = min(low, current), max(high, current)
+        if lo <= predicted <= hi:
+            return degrees
+
+        if on_limit == "raise":
+            raise SoftLimitExceeded(
+                f"joint {joint}: move to {predicted:+.2f}° exceeds "
+                f"{source} limit [{low:+.2f}, {high:+.2f}]"
+            )
+
+        clamped = min(max(predicted, lo), hi)
+        allowed = clamped - current
+        print(
+            f"[ARCTOS] joint {joint} move clamped: {degrees:+.2f}° -> "
+            f"{allowed:+.2f}° (would have reached {predicted:+.2f}°, "
+            f"limit [{low:+.2f}, {high:+.2f}])"
+        )
+        return allowed
+
     def move_joint(
         self,
         joint: int,
@@ -559,9 +788,20 @@ class ArctosArm:
         *,
         wait: bool = True,
         timeout: float = DEFAULT_MOVE_TIMEOUT,
+        on_limit: str = "clamp",
+        current: Optional[float] = None,
     ) -> Future:
         """
         Move a joint by `degrees` relative to its current position.
+
+        The move is checked against TRAVEL_LIMITS before anything is sent.
+        `on_limit` is "clamp" (shorten the move to the limit, warn) or "raise"
+        (refuse with SoftLimitExceeded). Scripted sequences should pass
+        "raise" -- a silently shortened move corrupts a taught trajectory.
+
+        `current` supplies an already-known joint angle so the guard does not
+        have to spend a round trip re-reading the encoder; callers that just
+        synced (e.g. set_joint_angles) should pass it.
 
         Returns the Future that resolves on move completion.
         If `wait` is True (default), blocks until the move finishes or times out.
@@ -572,6 +812,7 @@ class ArctosArm:
             raise ValueError(f"rpm must be 0..3000, got {rpm}")
         if not 0 <= acc <= 255:
             raise ValueError(f"acc must be 0..255, got {acc}")
+        degrees = self._apply_travel_limit(joint, degrees, on_limit, current)
         pulses = self._degrees_to_pulses(degrees, joint)
         if pulses == 0:
             # No-op; do not emit a stop frame (FD with pulses=0 is "stop slowly").
@@ -598,6 +839,72 @@ class ArctosArm:
                 )
         return fut
 
+    def check_pose(
+        self, targets: Dict[int, float]
+    ) -> Dict[int, Tuple[float, float, float, str]]:
+        """
+        Find every joint whose target lies outside its enforced limits.
+
+        Returns {joint: (target, low, high, source)} for the violations, empty
+        if the pose is reachable. Checking the whole pose up front lets a
+        caller refuse to move at all rather than discovering the third joint is
+        out of range after two have already moved.
+        """
+        bad = {}
+        for joint, target in targets.items():
+            window = self._limit_window(joint)
+            if window is None:
+                continue
+            low, high, source = window
+            if not low <= target <= high:
+                bad[joint] = (target, low, high, source)
+        return bad
+
+    def _sync_rpms(
+        self, deltas: Dict[int, float], rpm: int
+    ) -> Dict[int, int]:
+        """
+        Per-joint speeds that make every joint finish at the same moment.
+
+        Gear ratios span 24.6:1 to 150:1, so at one shared rpm a 10 deg move
+        takes 1.0s on J1 and 6.2s on J3 -- the arm does not travel a
+        coordinated path, joints just arrive whenever they arrive. Scaling each
+        joint's rpm by the motor revolutions it must turn fixes that: the
+        longest move runs at the requested rpm and everything else is slowed to
+        match.
+
+        The MKS speed field is an integer, so a joint needing under 1 rpm is
+        pinned there and arrives early; the caller is told which.
+        """
+        revs = {j: abs(d) * self.GEAR_RATIOS[j] / 360.0 for j, d in deltas.items()}
+        slowest = max(revs.values(), default=0.0)
+        if slowest <= 0:
+            return {j: rpm for j in deltas}
+
+        out, early = {}, []
+        for joint, r in revs.items():
+            scaled = rpm * (r / slowest)
+            if scaled < 1.0:
+                early.append(joint)
+            out[joint] = max(1, min(3000, int(round(scaled))))
+        if early:
+            print(f"[ARCTOS] joints {early} move too little to slow further "
+                  f"(under 1 rpm); they will arrive early")
+
+        # The rpm field is an integer, so a joint that wants 3.4 rpm gets 3 --
+        # a 12% timing error at the low end that no amount of arithmetic here
+        # can remove. Report it rather than claim exact synchronisation.
+        durations = {j: revs[j] / out[j] * 60.0 for j in revs if revs[j] > 0}
+        if len(durations) > 1:
+            longest, shortest = max(durations.values()), min(durations.values())
+            spread = (longest - shortest) / longest if longest else 0.0
+            if spread > 0.10:
+                worst = min(durations, key=durations.get)
+                print(f"[ARCTOS] sync within {spread * 100:.0f}% "
+                      f"(J{worst} rounds to {out[worst]} rpm); "
+                      f"raise rpm or shorten the move to tighten it")
+        return out
+
     def set_joint_angles(
         self,
         j1: float, j2: float, j3: float, j4: float, j5: float, j6: float,
@@ -606,6 +913,8 @@ class ArctosArm:
         *,
         wait: bool = True,
         timeout: float = DEFAULT_MOVE_TIMEOUT,
+        on_limit: str = "clamp",
+        sync: bool = True,
     ) -> Dict[int, Future]:
         """
         Move all joints to absolute target angles, in parallel.
@@ -613,6 +922,15 @@ class ArctosArm:
         Refreshes encoder positions first (so deltas are computed from
         reality, not a stale commanded value), then dispatches all six moves
         concurrently. Blocks on the whole batch if wait=True.
+
+        `sync` (default) scales each joint's rpm so they all finish together;
+        `rpm` then sets the pace of the longest-travelling joint. Pass
+        sync=False for the old behaviour of one shared rpm.
+
+        `on_limit` is forwarded to move_joint; pass "raise" for taught
+        trajectories where a clamped joint would desynchronise the pose. With
+        "raise" the whole pose is validated before anything moves, so a
+        violation costs no motion at all.
         """
         targets = {1: j1, 2: j2, 3: j3, 4: j4, 5: j5, 6: j6}
         self.sync_all_encoders()
@@ -620,13 +938,27 @@ class ArctosArm:
         with self._state_lock:
             current = dict(self.current_angles)
 
-        futures: Dict[int, Future] = {}
-        for joint in self.JOINTS:
-            delta = targets[joint] - current[joint]
-            if abs(delta) > 0.01:
-                futures[joint] = self.move_joint(
-                    joint, delta, rpm, acc, wait=False
+        if on_limit == "raise":
+            bad = self.check_pose(targets)
+            if bad:
+                detail = "; ".join(
+                    f"J{j} -> {t:+.2f}° outside {src} [{lo:+.2f}, {hi:+.2f}]"
+                    for j, (t, lo, hi, src) in sorted(bad.items())
                 )
+                raise SoftLimitExceeded(
+                    f"pose rejected, nothing moved: {detail}"
+                )
+
+        deltas = {j: targets[j] - current[j] for j in self.JOINTS
+                  if abs(targets[j] - current[j]) > 0.01}
+        rpms = self._sync_rpms(deltas, rpm) if sync else {j: rpm for j in deltas}
+
+        futures: Dict[int, Future] = {}
+        for joint, delta in deltas.items():
+            futures[joint] = self.move_joint(
+                joint, delta, rpms[joint], acc, wait=False,
+                on_limit=on_limit, current=current[joint],
+            )
 
         if wait:
             for joint, fut in futures.items():
@@ -812,12 +1144,20 @@ class ArctosArm:
     def emergency_stop_all(
         self, timeout: float = DEFAULT_QUERY_TIMEOUT
     ) -> None:
-        """Send emergency-stop to every joint, best-effort."""
+        """
+        Send emergency-stop to every joint, best-effort.
+
+        Also fails any pending move: a stopped move never reports completion,
+        so whoever is blocked waiting on it is released now rather than at the
+        move timeout. Safe to call from another thread.
+        """
         for joint in self.JOINTS:
             try:
                 self.emergency_stop(joint, timeout=timeout)
             except ArctosError as e:
                 print(f"[ARCTOS] emergency stop joint {joint}: {e}")
+            self._fail_pending(joint, CMD_MOVE_RELATIVE,
+                               MoveFailed(f"joint {joint}: emergency stop"))
 
     # ------------------------------------------------------------------
     # Homing
@@ -891,6 +1231,27 @@ class ArctosArm:
         with self._state_lock:
             self.current_angles[joint] = 0.0
 
+    def read_io(self, joint: int, *, timeout: float = DEFAULT_QUERY_TIMEOUT) -> int:
+        """
+        Read the IO port status byte (0x34).
+
+        bit0 = IN_1, bit1 = IN_2, bit2 = OUT_1, bit3 = OUT_2. With the limit
+        port remap enabled, IN_1 is the En pin and IN_2 is the Dir pin -- the
+        two limit sensors on a two-sensor joint.
+
+        Reading these directly lets us home against a sensor in software,
+        without the firmware's EndLimit function (which only takes effect
+        after a firmware homing cycle, and unlocks the shaft when it trips).
+        """
+        self._validate_joint(joint)
+        fut = self._register_pending(joint, CMD_READ_IO)
+        self._send_frame(joint, bytes([CMD_READ_IO]))
+        try:
+            return fut.result(timeout=timeout)
+        except FutureTimeout:
+            self._fail_pending(joint, CMD_READ_IO, CommandTimeout("read io"))
+            raise CommandTimeout(f"joint {joint} IO read timeout")
+
     def zero_here(
         self, joint: int, *, timeout: float = DEFAULT_QUERY_TIMEOUT
     ) -> bool:
@@ -913,6 +1274,14 @@ class ArctosArm:
         if ok:
             with self._state_lock:
                 self.current_angles[joint] = 0.0
+            # The joint now has a real reference, so its measured absolute
+            # limits become meaningful for the rest of this session.
+            self._start_angles[joint] = 0.0
+            self._homed.add(joint)
+            if joint in self.JOINT_LIMITS:
+                lo, hi = self.JOINT_LIMITS[joint]
+                print(f"[ARCTOS] joint {joint} homed — measured limits now "
+                      f"enforced: [{lo:+.1f}, {hi:+.1f}]")
         return ok
 
     def home_all(

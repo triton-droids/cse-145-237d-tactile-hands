@@ -1,0 +1,33 @@
+{
+  "_warning": "Angles are relative to the encoder zero of the session in which they were measured. Encoders reset on power-on, so these are only valid across reboots once the arm is homed to a repeatable zero.",
+  "reference": "folded end of each joint, set with jog.py 'z'",
+  "margin_deg": 3.0,
+  "measured_at": "2026-08-18 21:43:16",
+  "joints": {
+    "3": {
+      "min": 0.0,
+      "max": 122.5,
+      "measured_min": 0.0,
+      "measured_max": 125.5,
+      "note": "zero = folded end (park pose); no margin at 0 so park can reach it",
+      "park_is_origin": true
+    },
+    "2": {
+      "min": 0.0,
+      "max": 250.93,
+      "measured_min": 0.0,
+      "measured_max": 250.93,
+      "park_is_origin": true,
+      "note": "zero = folded end (park pose). Max is a deliberate cap, not the mechanical end: beyond it certain J2/J3 combinations collide."
+    },
+    "4": {
+      "min": -179.0,
+      "max": 179.0,
+      "measured_min": -179.72,
+      "measured_max": 180.0,
+      "park_is_origin": true,
+      "note": "No mechanical stop -- J4 turns freely (~360 deg explored, arm never resisted). +/-179 is a chosen cap, protecting the wiring run to the hand from winding up, not a physical limit."
+    }
+  },
+  "_park_is_origin": "Joints flagged park_is_origin are parked AT their zero before power-down (park.py). A reading near 0 at connect is consistent with that but does not prove it -- the encoder reads 0 at power-on wherever the arm is -- so measured limits are enforced only after the joint is zeroed (home.py, jog.py 'z') or an operator who has looked at the arm calls confirm_parked() (button in teleop_gui.py)."
+}
